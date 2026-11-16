@@ -9,6 +9,7 @@ import { HostBadge } from '../components/property/HostBadge';
 import { MapPlaceholder } from '../components/search/MapPlaceholder';
 import { PropertyCard } from '../components/property/PropertyCard';
 import { useWishlist } from '../context/WishlistContext';
+import { useCompare } from '../context/CompareContext';
 import { useSearch } from '../context/SearchContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -16,6 +17,7 @@ import {
   Star,
   Share2,
   Heart,
+  Scale,
   Award,
   Key,
   MapPin,
@@ -52,6 +54,7 @@ export const PropertyDetailsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isWishlisted, toggleWishlist } = useWishlist();
+  const { isCompared, toggleCompare } = useCompare();
   const { allProperties, refreshProperties } = useSearch();
   const { user, token, refreshUser } = useAuth();
   const { showToast } = useToast();
@@ -154,6 +157,19 @@ export const PropertyDetailsPage = () => {
             </h1>
 
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleCompare(property.id, property.title)}
+                className={`flex items-center gap-2 text-xs sm:text-sm font-semibold py-2 px-3.5 rounded-xl transition cursor-pointer ${
+                  isCompared(property.id)
+                    ? 'bg-airbnb text-white shadow-xs'
+                    : 'text-dark hover:bg-gray-100 border border-borderLight'
+                }`}
+              >
+                <Scale className="w-4 h-4" />
+                <span>{isCompared(property.id) ? 'Comparing' : 'Compare'}</span>
+              </button>
+
               <button
                 onClick={handleShare}
                 className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-dark hover:bg-gray-100 py-2 px-3.5 rounded-xl transition"

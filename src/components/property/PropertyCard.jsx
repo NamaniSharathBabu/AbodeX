@@ -1,16 +1,25 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, Star, ChevronLeft, ChevronRight, Award } from 'lucide-react';
+import { Heart, Star, ChevronLeft, ChevronRight, Award, Scale } from 'lucide-react';
 import { useWishlist } from '../../context/WishlistContext';
+import { useCompare } from '../../context/CompareContext';
 import { useToast } from '../../context/ToastContext';
 
 export const PropertyCard = ({ property, showTotal = false }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const { isWishlisted, toggleWishlist } = useWishlist();
+  const {
+    isCompared,
+    setIsDraggingProperty,
+    setDraggedPropertyId,
+    draggedPropertyId,
+  } = useCompare();
   const { showToast } = useToast();
 
   const wishlisted = isWishlisted(property.id);
+  const compared = isCompared(property.id);
+  const isBeingDragged = draggedPropertyId === property.id;
 
   const handlePrevImage = (e) => {
     e.preventDefault();
@@ -39,40 +48,69 @@ export const PropertyCard = ({ property, showTotal = false }) => {
     }
   };
 
+  const handleDragStart = (e) => {
+    e.dataTransfer.setData('text/plain', property.id);
+    e.dataTransfer.effectAllowed = 'copy';
+    setDraggedPropertyId(property.id);
+    setIsDraggingProperty(true);
+  };
+
+  const handleDragEnd = () => {
+    setIsDraggingProperty(false);
+    setDraggedPropertyId(null);
+  };
+
   return (
     <div
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="group flex flex-col relative"
+      title="Drag this card to the Compare Box on the right to compare stays"
+      className={`group flex flex-col relative cursor-grab active:cursor-grabbing transition-all ${
+        isBeingDragged ? 'opacity-50 scale-95' : ''
+      }`}
     >
-      <Link to={`/rooms/${property.id}`} className="block">
+      <Link to={`/rooms/${property.id}`} draggable={false} className="block">
         {/* Image Carousel Container */}
         <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-gray-200">
           <img
             src={property.images[currentImageIndex]}
             alt={property.title}
+            draggable={false}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
           />
 
-          {/* Guest Favorite / Superhost Badge */}
-          {property.isSuperhost && (
-            <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-xs text-dark px-2.5 py-1 rounded-full text-xs font-bold shadow-xs flex items-center gap-1">
-              <Award className="w-3.5 h-3.5 text-airbnb fill-airbnb" />
-              <span>Guest favorite</span>
-            </div>
-          )}
+          {/* Guest Favorite / Superhost Badge or In-Compare Status */}
+          <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+            {property.isSuperhost && (
+              <div className="bg-white/95 backdrop-blur-xs text-dark px-2.5 py-1 rounded-full text-xs font-bold shadow-xs flex items-center gap-1">
+                <Award className="w-3.5 h-3.5 text-airbnb fill-airbnb" />
+                <span>Guest favorite</span>
+              </div>
+            )}
+            {compared && (
+              <div className="bg-airbnb text-white px-2.5 py-0.5 rounded-full text-[10px] font-extrabold shadow-xs flex items-center gap-1 w-fit">
+                <Scale className="w-3 h-3" />
+                <span>In Compare Box</span>
+              </div>
+            )}
+          </div>
 
-          {/* Wishlist Heart Button */}
+          {/* Wishlist Heart Button (Only button on card) */}
           <button
             type="button"
             onClick={handleWishlistClick}
-            className="absolute top-3 right-3 p-2 rounded-full transition transform active:scale-75 hover:scale-110 z-10"
+            className="absolute top-3 right-3 p-2 rounded-full transition transform active:scale-75 hover:scale-110 z-10 cursor-pointer"
             aria-label="Save to wishlist"
           >
             <Heart
               className={`w-6 h-6 stroke-white stroke-[2] drop-shadow-md transition-colors ${
-                wishlisted ? 'fill-[#FF385C] text-[#FF385C] animate-heart' : 'fill-black/30 text-white'
+                wishlisted
+                  ? 'fill-[#FF385C] text-[#FF385C] animate-heart'
+                  : 'fill-black/30 text-white'
               }`}
             />
           </button>
@@ -143,7 +181,9 @@ export const PropertyCard = ({ property, showTotal = false }) => {
                 {property.bookedDates.length === 1 ? 'reservation' : 'reservations'} · Check dates
               </span>
             ) : (
-              <span className="text-emerald-700 font-medium">Instant availability · All dates open</span>
+              <span className="text-emerald-700 font-medium">
+                Instant availability · All dates open
+              </span>
             )}
           </p>
 

@@ -12,6 +12,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { HostDashboardPage } from './pages/HostDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
+import { ComparePage } from './pages/ComparePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
           <Route path="/property/:id" element={<PropertyDetailsPage />} />
           <Route path="/wishlists" element={<WishlistPage />} />
           <Route path="/wishlist" element={<WishlistPage />} />
+          <Route path="/compare" element={<ComparePage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/host" element={<HostDashboardPage />} />
           <Route path="/admin" element={<AdminDashboardPage />} />

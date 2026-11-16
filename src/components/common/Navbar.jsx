@@ -15,15 +15,18 @@ import {
   Check,
   Shield,
   Building2,
+  Scale,
 } from 'lucide-react';
 import { SearchBar } from './SearchBar';
 import { useWishlist } from '../../context/WishlistContext';
+import { useCompare } from '../../context/CompareContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSearch } from '../../context/SearchContext';
 import { useToast } from '../../context/ToastContext';
 
 export const Navbar = ({ forceCompact = false }) => {
   const { wishlistCount } = useWishlist();
+  const { compareCount } = useCompare();
   const { user, isAuthenticated, switchUserMode, isHostSessionUnlocked, logout } = useAuth();
   const { searchOpen, setSearchOpen } = useSearch();
   const { showToast } = useToast();
@@ -86,6 +89,19 @@ export const Navbar = ({ forceCompact = false }) => {
 
           {/* Right Navigation controls */}
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              to="/compare"
+              className="hidden sm:flex items-center gap-1.5 text-xs md:text-sm font-semibold text-dark hover:bg-gray-100 py-2 px-3 rounded-full transition"
+            >
+              <Scale className="w-4 h-4 text-airbnb" />
+              <span>Compare</span>
+              {compareCount > 0 && (
+                <span className="bg-airbnb text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {compareCount}
+                </span>
+              )}
+            </Link>
+
             <button
               onClick={() => navigate('/host')}
               className="hidden lg:block text-xs md:text-sm font-semibold text-dark hover:bg-gray-100 py-2.5 px-3.5 rounded-full transition cursor-pointer"
