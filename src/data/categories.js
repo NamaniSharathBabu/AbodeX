@@ -1,0 +1,16 @@
+export const categories = [
+  { id: 'all', label: 'All Homes', icon: 'Sparkles', description: 'Browse all curated properties' },
+  { id: 'beachfront', label: 'Beachfront', icon: 'Palmtree', description: 'Steps away from the sand and ocean waves' },
+  { id: 'cabins', label: 'Cabins', icon: 'Trees', description: 'Cozy retreats tucked away in tranquil woods' },
+  { id: 'amazing-pools', label: 'Amazing pools', icon: 'Waves', description: 'Stunning infinity, heated, and architectural pools' },
+  { id: 'mansions', label: 'Mansions', icon: 'Castle', description: 'Luxury estates and grand residences' },
+  { id: 'tiny-homes', label: 'Tiny homes', icon: 'Home', description: 'Clever, compact living spaces with charm' },
+  { id: 'lakefront', label: 'Lakefront', icon: 'Compass', description: 'Peaceful docks, canoeing, and panoramic lake views' },
+  { id: 'iconic-cities', label: 'Iconic cities', icon: 'Building2', description: 'Centrally located lofts and penthouses' },
+  { id: 'countryside', label: 'Countryside', icon: 'Wheat', description: 'Farmsteads, vineyard cottages, and rolling meadows' },
+  { id: 'skiing', label: 'Ski-in/out', icon: 'MountainSnow', description: 'Direct slope access in world-class winter resorts' },
+  { id: 'tropical', label: 'Tropical', icon: 'Sun', description: 'Lush exotic getaways in sun-drenched paradises' },
+  { id: 'treehouses', label: 'Treehouses', icon: 'TentTree', description: 'High canopy retreats surrounded by wildlife' },
+  { id: 'trending', label: 'Trending', icon: 'Flame', description: 'The most saved and talked-about spots right now' },
+  { id: 'luxe', label: 'Luxe', icon: 'Crown', description: 'Handcrafted luxury with bespoke concierge services' },
+];

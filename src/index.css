@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  --color-airbnb: #FF385C;
+  --color-airbnb-hover: #E00B41;
+  --color-airbnb-dark: #D70466;
+  --color-airbnb-light: #FFF8F8;
+  --color-airbnb-accent: #FF5A5F;
+  --color-dark: #222222;
+  --color-secondary: #717171;
+  --color-borderLight: #DDDDDD;
+  --color-borderMuted: #EBEBEB;
+  --color-bgLight: #F7F7F7;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --shadow-airbnb: 0 1px 2px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05);
+  --shadow-airbnb-hover: 0 6px 20px rgba(0,0,0,0.12);
+  --shadow-search: 0 3px 12px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.08);
+  --shadow-modal: 0 8px 28px rgba(0,0,0,0.28);
+}
+
+body {
+  color: #222222;
+  background-color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hide scrollbars for clean category bar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* Keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+@keyframes pulseHeart {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+.animate-heart {
+  animation: pulseHeart 0.3s ease-in-out;
+}
