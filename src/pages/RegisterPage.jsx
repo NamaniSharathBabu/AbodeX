@@ -15,15 +15,17 @@ export const RegisterPage = () => {
   const { showToast } = useToast();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    setTimeout(() => {
-      register({ name: name || 'New Explorer', email });
-      setIsLoading(false);
-      showToast(`Welcome to AbodeX, ${name || 'Explorer'}!`, 'success');
-      navigate('/profile');
-    }, 400);
+    const result = await register({ name: name || 'New Explorer', email, password });
+    setIsLoading(false);
+    if (!result.success) {
+      showToast(result.error || 'Registration failed', 'error');
+      return;
+    }
+    showToast(`Welcome to AbodeX, ${name || 'Explorer'}!`, 'success');
+    navigate('/profile');
   };
 
   return (
@@ -102,6 +104,11 @@ export const RegisterPage = () => {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+          </div>
+
+          <div className="p-3 bg-gray-50 rounded-2xl border border-gray-200 text-[11px] text-secondary">
+            Your account includes both <strong>Guest Mode</strong> (browsing & booking stays) and{' '}
+            <strong>Host Mode</strong> (unlocked anytime with your password to list and manage properties).
           </div>
 
           <p className="text-[11px] text-secondary leading-relaxed">

@@ -14,15 +14,32 @@ export const LoginPage = () => {
   const { showToast } = useToast();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    setTimeout(() => {
-      login(email, password);
-      setIsLoading(false);
-      showToast('Welcome back, Alex!', 'success');
-      navigate('/profile');
-    }, 400);
+    const result = await login(email, password);
+    setIsLoading(false);
+    if (!result.success) {
+      showToast(result.error || 'Login failed', 'error');
+      return;
+    }
+    const loggedRole = result.user?.role || 'GUEST';
+    showToast(`Welcome back, ${result.user?.name || 'User'}!`, 'success');
+    navigate(loggedRole === 'ADMIN' ? '/admin' : '/profile');
+  };
+
+  const quickLoginAs = async (demoEmail, label) => {
+    setEmail(demoEmail);
+    setIsLoading(true);
+    const result = await login(demoEmail, 'password123');
+    setIsLoading(false);
+    if (!result.success) {
+      showToast(result.error || 'Login failed', 'error');
+      return;
+    }
+    const loggedRole = result.user?.role || 'GUEST';
+    showToast(`Signed in as ${label}!`, 'success');
+    navigate(loggedRole === 'ADMIN' ? '/admin' : '/profile');
   };
 
   return (
@@ -41,6 +58,29 @@ export const LoginPage = () => {
           </Link>
           <h1 className="text-2xl font-extrabold text-dark">Welcome back</h1>
           <p className="text-xs text-secondary">Log in to manage your stays and saved wishlists</p>
+        </div>
+
+        {/* Quick Role Demo Login Buttons */}
+        <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <span className="block text-[10px] font-extrabold uppercase tracking-wider text-secondary text-center">
+            Quick Sign-In (PostgreSQL Accounts)
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => quickLoginAs('alex.rivera@example.com', 'Alex (Guest & Host)')}
+              className="py-2.5 px-3 rounded-xl bg-white border border-gray-200 hover:border-dark text-xs font-bold text-dark transition cursor-pointer"
+            >
+              User (Guest & Host)
+            </button>
+            <button
+              type="button"
+              onClick={() => quickLoginAs('admin@abodex.com', 'Sharath (System Admin)')}
+              className="py-2.5 px-3 rounded-xl bg-white border border-gray-200 hover:border-dark text-xs font-bold text-purple-700 transition cursor-pointer"
+            >
+              System Admin
+            </button>
+          </div>
         </div>
 
         {/* Social Auth Buttons */}

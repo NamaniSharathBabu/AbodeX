@@ -142,11 +142,10 @@ export const SearchBar = ({ isCompact = false, onSearchSubmit }) => {
             Check in
           </label>
           <input
-            type="text"
-            placeholder="Add dates"
+            type="date"
             value={checkIn}
             onChange={(e) => setCheckIn(e.target.value)}
-            className="w-full bg-transparent text-sm text-dark placeholder:text-secondary focus:outline-none font-medium truncate cursor-pointer"
+            className="w-full bg-transparent text-xs text-dark placeholder:text-secondary focus:outline-none font-medium cursor-pointer"
           />
         </div>
 
@@ -165,11 +164,10 @@ export const SearchBar = ({ isCompact = false, onSearchSubmit }) => {
             Check out
           </label>
           <input
-            type="text"
-            placeholder="Add dates"
+            type="date"
             value={checkOut}
             onChange={(e) => setCheckOut(e.target.value)}
-            className="w-full bg-transparent text-sm text-dark placeholder:text-secondary focus:outline-none font-medium truncate cursor-pointer"
+            className="w-full bg-transparent text-xs text-dark placeholder:text-secondary focus:outline-none font-medium cursor-pointer"
           />
         </div>
 

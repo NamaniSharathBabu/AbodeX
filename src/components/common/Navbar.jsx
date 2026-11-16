@@ -13,16 +13,20 @@ import {
   Home,
   X,
   Check,
+  Shield,
+  Building2,
 } from 'lucide-react';
 import { SearchBar } from './SearchBar';
 import { useWishlist } from '../../context/WishlistContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSearch } from '../../context/SearchContext';
+import { useToast } from '../../context/ToastContext';
 
 export const Navbar = ({ forceCompact = false }) => {
   const { wishlistCount } = useWishlist();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, switchUserMode, isHostSessionUnlocked, logout } = useAuth();
   const { searchOpen, setSearchOpen } = useSearch();
+  const { showToast } = useToast();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [langModalOpen, setLangModalOpen] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState('USD ($)');
@@ -83,8 +87,8 @@ export const Navbar = ({ forceCompact = false }) => {
           {/* Right Navigation controls */}
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={() => navigate('/profile')}
-              className="hidden lg:block text-xs md:text-sm font-semibold text-dark hover:bg-gray-100 py-2.5 px-3.5 rounded-full transition"
+              onClick={() => navigate('/host')}
+              className="hidden lg:block text-xs md:text-sm font-semibold text-dark hover:bg-gray-100 py-2.5 px-3.5 rounded-full transition cursor-pointer"
             >
               AbodeX your home
             </button>
@@ -125,12 +129,78 @@ export const Navbar = ({ forceCompact = false }) => {
 
               {/* User Menu Dropdown */}
               {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-modal border border-borderLight py-2 z-50 animate-fade-in divide-y divide-gray-100 text-sm">
+                <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-modal border border-borderLight py-2 z-50 animate-fade-in divide-y divide-gray-100 text-sm">
                   {isAuthenticated ? (
                     <>
-                      <div className="px-4 py-3 bg-gray-50/70">
-                        <p className="font-semibold text-dark truncate">{user.name}</p>
-                        <p className="text-xs text-secondary truncate">{user.email}</p>
+                      <div className="px-4 py-3 bg-gray-50/70 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-dark truncate">{user?.name || 'Guest'}</p>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                              user?.role === 'ADMIN'
+                                ? 'bg-purple-100 text-purple-800'
+                                : user?.role === 'HOST'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {user?.role || 'GUEST'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-secondary truncate">{user?.email || ''}</p>
+
+                        {/* Combined Guest <-> Host Mode Toggle (No user can self-switch to Admin) */}
+                        {user?.role !== 'ADMIN' && (
+                          <div className="pt-1">
+                            <span className="block text-[10px] font-bold uppercase text-secondary mb-1">
+                              Account Mode {isHostSessionUnlocked() ? '· Host Unlocked' : ''}
+                            </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if ((user?.role || 'GUEST') !== 'GUEST') {
+                                    await switchUserMode('GUEST');
+                                    showToast('Switched to Guest mode (no password needed)', 'info');
+                                  }
+                                  setUserMenuOpen(false);
+                                }}
+                                className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                                  (user?.role || 'GUEST') === 'GUEST'
+                                    ? 'bg-dark text-white'
+                                    : 'bg-white border border-gray-200 text-secondary hover:text-dark'
+                                }`}
+                              >
+                                Guest Mode
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setUserMenuOpen(false);
+                                  if (user?.role !== 'HOST') {
+                                    const switched = await switchUserMode('HOST', () => {
+                                      showToast('Host mode unlocked for this session!', 'success');
+                                      navigate('/host');
+                                    });
+                                    if (switched) {
+                                      showToast('Switched to Host mode!', 'success');
+                                      navigate('/host');
+                                    }
+                                  } else {
+                                    navigate('/host');
+                                  }
+                                }}
+                                className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                                  user?.role === 'HOST'
+                                    ? 'bg-amber-600 text-white'
+                                    : 'bg-white border border-gray-200 text-secondary hover:text-dark'
+                                }`}
+                              >
+                                Host Mode {isHostSessionUnlocked() ? '✓' : '🔒'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="py-1">
                         <Link
@@ -139,7 +209,7 @@ export const Navbar = ({ forceCompact = false }) => {
                           className="flex items-center gap-3 px-4 py-2.5 text-dark hover:bg-gray-100 font-medium transition"
                         >
                           <User className="w-4 h-4 text-secondary" />
-                          Profile
+                          Profile & Support Issues
                         </Link>
                         <Link
                           to="/wishlists"
@@ -164,6 +234,48 @@ export const Navbar = ({ forceCompact = false }) => {
                           <Briefcase className="w-4 h-4 text-secondary" />
                           Trips & Bookings
                         </Link>
+                      </div>
+                      <div className="py-1">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setUserMenuOpen(false);
+                            if (user?.role === 'HOST' || user?.role === 'ADMIN') {
+                              navigate('/host');
+                            } else {
+                              const switched = await switchUserMode('HOST', () => {
+                                showToast('Host mode unlocked!', 'success');
+                                navigate('/host');
+                              });
+                              if (switched) navigate('/host');
+                            }
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-2.5 text-dark hover:bg-gray-100 font-medium transition text-left cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Building2 className="w-4 h-4 text-airbnb" />
+                            <span>Host Listings Console</span>
+                          </div>
+                          <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            {user?.role === 'HOST' || isHostSessionUnlocked() ? 'UNLOCKED' : 'KEY REQ'}
+                          </span>
+                        </button>
+
+                        {user?.role === 'ADMIN' && (
+                          <Link
+                            to="/admin"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="flex items-center justify-between px-4 py-2.5 text-dark hover:bg-gray-100 font-medium transition"
+                          >
+                            <div className="flex items-center gap-3">
+                              <Shield className="w-4 h-4 text-purple-600" />
+                              <span>Admin Authority Console</span>
+                            </div>
+                            <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
+                              ADMIN
+                            </span>
+                          </Link>
+                        )}
                       </div>
                       <div className="py-1">
                         <Link

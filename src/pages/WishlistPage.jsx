@@ -3,14 +3,16 @@ import { Link } from 'react-router-dom';
 import { properties } from '../data/properties';
 import { PropertyCard } from '../components/property/PropertyCard';
 import { useWishlist } from '../context/WishlistContext';
+import { useSearch } from '../context/SearchContext';
 import { Heart, Compass, Trash2 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 export const WishlistPage = () => {
   const { wishlist, clearWishlist } = useWishlist();
+  const { allProperties } = useSearch();
   const { showToast } = useToast();
 
-  const wishlistedProperties = properties.filter((p) => wishlist.includes(p.id));
+  const wishlistedProperties = allProperties.filter((p) => wishlist.includes(p.id));
 
   const handleClear = () => {
     clearWishlist();

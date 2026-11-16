@@ -1,9 +1,13 @@
-import React, { createContext, useContext, useState, useMemo } from 'react';
-import { properties } from '../data/properties';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import axios from 'axios';
+import { checkDateRangeOverlap, validateBookingDates } from '../utils/stayfinderAlgorithms';
 
+const API_BASE = 'http://localhost:5000';
 const SearchContext = createContext();
 
 export const SearchProvider = ({ children }) => {
+  const [allProperties, setAllProperties] = useState([]);
+  const [loadingProperties, setLoadingProperties] = useState(true);
   const [destination, setDestination] = useState('');
   const [checkIn, setCheckIn] = useState('');
   const [checkOut, setCheckOut] = useState('');
@@ -21,6 +25,30 @@ export const SearchProvider = ({ children }) => {
   const [searchOpen, setSearchOpen] = useState(false);
 
   const totalGuests = guests.adults + guests.children;
+
+  // Always fetch properties from PostgreSQL database via Backend API (Single Source of Truth)
+  const refreshProperties = useCallback(async () => {
+    try {
+      setLoadingProperties(true);
+      const res = await axios.get(`${API_BASE}/api/properties`);
+      if (res.data?.properties && Array.isArray(res.data.properties)) {
+        setAllProperties(res.data.properties);
+      }
+    } catch (e) {
+      console.error('Failed to fetch properties from PostgreSQL:', e);
+    } finally {
+      setLoadingProperties(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshProperties();
+
+    // Also re-fetch when user switches back from Prisma Studio tab so DB edits appear immediately
+    const handleFocus = () => refreshProperties();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [refreshProperties]);
 
   const updateGuests = (type, delta) => {
     setGuests((prev) => {
@@ -49,7 +77,7 @@ export const SearchProvider = ({ children }) => {
   };
 
   const filteredProperties = useMemo(() => {
-    return properties.filter((prop) => {
+    return allProperties.filter((prop) => {
       // Category filter
       if (selectedCategory !== 'all' && prop.category !== selectedCategory) {
         return false;
@@ -92,20 +120,36 @@ export const SearchProvider = ({ children }) => {
         if (!hasAllSelected) return false;
       }
 
+      // 4.1.4 Date Range Availability & Overlap Filter [checkIn, checkOut)
+      if (checkIn && checkOut) {
+        const dateVal = validateBookingDates(checkIn, checkOut);
+        if (dateVal.valid) {
+          const overlap = checkDateRangeOverlap(checkIn, checkOut, prop.bookedDates || []);
+          if (overlap.hasConflict) return false;
+        }
+      }
+
       return true;
     });
   }, [
+    allProperties,
     selectedCategory,
     destination,
     totalGuests,
     priceRange,
     bedroomsFilter,
     selectedAmenities,
+    checkIn,
+    checkOut,
   ]);
 
   return (
     <SearchContext.Provider
       value={{
+        allProperties,
+        setAllProperties,
+        loadingProperties,
+        refreshProperties,
         destination,
         setDestination,
         checkIn,

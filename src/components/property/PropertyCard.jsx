@@ -135,9 +135,16 @@ export const PropertyCard = ({ property, showTotal = false }) => {
             {property.type} · {property.bedrooms} {property.bedrooms === 1 ? 'bed' : 'beds'}
           </p>
 
-          {/* Availability / Dates placeholder */}
+          {/* Availability / Dates status */}
           <p className="text-xs text-secondary truncate">
-            Available next week
+            {property.bookedDates && property.bookedDates.length > 0 ? (
+              <span className="text-amber-700 font-medium">
+                {property.bookedDates.length} active{' '}
+                {property.bookedDates.length === 1 ? 'reservation' : 'reservations'} · Check dates
+              </span>
+            ) : (
+              <span className="text-emerald-700 font-medium">Instant availability · All dates open</span>
+            )}
           </p>
 
           {/* Price */}

@@ -1,29 +1,117 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, ChevronDown, ChevronUp, Plus, Minus, CheckCircle, ShieldCheck, Flag } from 'lucide-react';
+import axios from 'axios';
+import {
+  Star,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Minus,
+  CheckCircle,
+  ShieldCheck,
+  AlertTriangle,
+  Calendar,
+  Sparkles,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useSearch } from '../../context/SearchContext';
 import { useToast } from '../../context/ToastContext';
+import {
+  validateBookingDates,
+  checkDateRangeOverlap,
+} from '../../utils/stayfinderAlgorithms';
 
 export const BookingCard = ({ property }) => {
   const navigate = useNavigate();
-  const { addReservation } = useAuth();
+  const { addReservation, token, refreshUser } = useAuth();
+  const { checkIn: searchCheckIn, checkOut: searchCheckOut, refreshProperties } = useSearch();
   const { showToast } = useToast();
 
-  const [nights, setNights] = useState(5);
-  const [checkInDate, setCheckInDate] = useState('2026-10-12');
-  const [checkOutDate, setCheckOutDate] = useState('2026-10-17');
+  const [checkInDate, setCheckInDate] = useState(searchCheckIn || '2026-10-20');
+  const [checkOutDate, setCheckOutDate] = useState(searchCheckOut || '2026-10-25');
   const [guests, setGuests] = useState({ adults: 2, children: 0, infants: 0, pets: 0 });
   const [isGuestOpen, setIsGuestOpen] = useState(false);
   const [isReservedModalOpen, setIsReservedModalOpen] = useState(false);
   const [confirmationCode, setConfirmationCode] = useState('');
+  const [serverAvailability, setServerAvailability] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync with global search dates if user selected them
+  useEffect(() => {
+    if (searchCheckIn) setCheckInDate(searchCheckIn);
+    if (searchCheckOut) setCheckOutDate(searchCheckOut);
+  }, [searchCheckIn, searchCheckOut]);
 
   const totalGuests = guests.adults + guests.children;
   const maxGuests = property.guests || 6;
 
+  // Active reservations for this property from PostgreSQL
+  const bookedRanges = useMemo(() => {
+    return (property.bookedDates || []).filter(
+      (b) => (b.status || 'Confirmed').toUpperCase() !== 'CANCELLED'
+    );
+  }, [property.bookedDates]);
+
+  // 4.1.4 Instant Client-Side Date Validation & Overlap Check [checkIn, checkOut)
+  const dateEvaluation = useMemo(() => {
+    const validation = validateBookingDates(checkInDate, checkOutDate);
+    if (!validation.valid) {
+      return {
+        valid: false,
+        hasConflict: true,
+        nights: 0,
+        reason: validation.error,
+        conflictingBookings: [],
+      };
+    }
+
+    const overlap = checkDateRangeOverlap(checkInDate, checkOutDate, bookedRanges);
+    return {
+      valid: true,
+      hasConflict: overlap.hasConflict,
+      nights: validation.nights,
+      reason: overlap.reason,
+      conflictingBookings: overlap.conflictingBookings,
+    };
+  }, [checkInDate, checkOutDate, bookedRanges]);
+
+  // 4.1.4 Live Server-Side PostgreSQL Availability Verification
+  useEffect(() => {
+    let active = true;
+    const verifyOnServer = async () => {
+      if (!dateEvaluation.valid) {
+        setServerAvailability(null);
+        return;
+      }
+      try {
+        const res = await axios.post('/api/bookings/check-availability', {
+          propertyId: property.id,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+        });
+        if (active) {
+          setServerAvailability(res.data);
+        }
+      } catch {
+        // Keep client-side evaluation if offline
+      }
+    };
+    verifyOnServer();
+    return () => {
+      active = false;
+    };
+  }, [property.id, checkInDate, checkOutDate, dateEvaluation.valid]);
+
+  const nights = dateEvaluation.nights > 0 ? dateEvaluation.nights : 1;
   const basePrice = property.price * nights;
   const cleaningFee = property.cleaningFee || 120;
   const serviceFee = property.serviceFee || 65;
   const grandTotal = basePrice + cleaningFee + serviceFee;
+
+  const hasConflict =
+    dateEvaluation.hasConflict || (serverAvailability && !serverAvailability.available);
+  const conflictMessage =
+    dateEvaluation.reason || serverAvailability?.reason || 'Selected dates are unavailable.';
 
   const updateGuestCount = (type, delta) => {
     const current = guests[type];
@@ -39,42 +127,70 @@ export const BookingCard = ({ property }) => {
     }));
   };
 
-  const handleDateChange = (type, value) => {
-    if (type === 'checkIn') {
-      setCheckInDate(value);
-    } else {
-      setCheckOutDate(value);
+  // Helper to automatically pick the next available 5-night window after any booked dates
+  const pickNextAvailableDates = () => {
+    if (bookedRanges.length === 0) {
+      setCheckInDate('2026-10-20');
+      setCheckOutDate('2026-10-25');
+      return;
     }
+    const latestEnd = bookedRanges.reduce((maxDate, b) => {
+      return b.checkOut > maxDate ? b.checkOut : maxDate;
+    }, '2026-10-19');
+
+    const start = new Date(latestEnd);
+    start.setDate(start.getDate() + 1);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 5);
+
+    setCheckInDate(start.toISOString().split('T')[0]);
+    setCheckOutDate(end.toISOString().split('T')[0]);
+    showToast('Selected next conflict-free 5-night window!', 'info');
   };
 
-  const handleReserve = (e) => {
+  const handleReserve = async (e) => {
     e.preventDefault();
-    const code = `HM-${Math.floor(10000 + Math.random() * 90000)}-${property.city.substring(0, 2).toUpperCase()}`;
-    setConfirmationCode(code);
+    if (!dateEvaluation.valid || hasConflict) {
+      showToast(conflictMessage, 'error');
+      return;
+    }
 
-    const newBooking = {
-      id: `trip-${Date.now()}`,
-      propertyId: property.id,
-      title: property.title,
-      location: `${property.city}, ${property.country}`,
-      checkIn: checkInDate,
-      checkOut: checkOutDate,
-      guests: totalGuests,
-      totalPrice: grandTotal,
-      status: 'Confirmed',
-      image: property.images[0],
-      hostName: property.host.name,
-      confirmationCode: code,
-    };
+    try {
+      setIsSubmitting(true);
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.post(
+        '/api/bookings',
+        {
+          propertyId: property.id,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          guests: totalGuests,
+        },
+        { headers }
+      );
 
-    addReservation(newBooking);
-    setIsReservedModalOpen(true);
-    showToast('Reservation successfully confirmed!', 'success');
+      const savedBooking = res.data;
+      setConfirmationCode(savedBooking.confirmationCode);
+      addReservation(savedBooking);
+      await refreshProperties();
+      await refreshUser();
+      setIsReservedModalOpen(true);
+      showToast('Reservation verified and saved to PostgreSQL!', 'success');
+    } catch (err) {
+      if (err.response?.status === 409) {
+        showToast(err.response.data.error || 'Booking conflict detected!', 'error');
+        await refreshProperties();
+        return;
+      }
+      showToast('Failed to complete booking. Please try again.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <>
-      <div className="bg-white rounded-3xl border border-borderLight p-6 shadow-search sticky top-28 space-y-6">
+      <div className="bg-white rounded-3xl border border-borderLight p-6 shadow-search sticky top-28 space-y-5">
         {/* Header: Price & Rating */}
         <div className="flex items-baseline justify-between">
           <div className="flex items-baseline gap-1">
@@ -90,7 +206,13 @@ export const BookingCard = ({ property }) => {
         </div>
 
         {/* Date and Guest Box */}
-        <div className="border border-borderLight rounded-2xl overflow-hidden focus-within:border-dark transition">
+        <div
+          className={`border rounded-2xl overflow-hidden transition ${
+            hasConflict
+              ? 'border-red-400 ring-1 ring-red-200'
+              : 'border-borderLight focus-within:border-dark'
+          }`}
+        >
           <div className="grid grid-cols-2 divide-x divide-borderLight border-b border-borderLight">
             <div className="p-3 bg-white hover:bg-gray-50/70 transition">
               <label className="block text-[10px] font-extrabold uppercase tracking-wider text-dark">
@@ -99,7 +221,7 @@ export const BookingCard = ({ property }) => {
               <input
                 type="date"
                 value={checkInDate}
-                onChange={(e) => handleDateChange('checkIn', e.target.value)}
+                onChange={(e) => setCheckInDate(e.target.value)}
                 className="w-full bg-transparent text-xs font-medium text-dark focus:outline-none cursor-pointer mt-0.5"
               />
             </div>
@@ -110,7 +232,7 @@ export const BookingCard = ({ property }) => {
               <input
                 type="date"
                 value={checkOutDate}
-                onChange={(e) => handleDateChange('checkOut', e.target.value)}
+                onChange={(e) => setCheckOutDate(e.target.value)}
                 className="w-full bg-transparent text-xs font-medium text-dark focus:outline-none cursor-pointer mt-0.5"
               />
             </div>
@@ -132,7 +254,11 @@ export const BookingCard = ({ property }) => {
                   {guests.infants > 0 ? `, ${guests.infants} infant` : ''}
                 </span>
               </div>
-              {isGuestOpen ? <ChevronUp className="w-4 h-4 text-dark" /> : <ChevronDown className="w-4 h-4 text-dark" />}
+              {isGuestOpen ? (
+                <ChevronUp className="w-4 h-4 text-dark" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-dark" />
+              )}
             </button>
 
             {/* Guest Dropdown */}
@@ -232,23 +358,106 @@ export const BookingCard = ({ property }) => {
           </div>
         </div>
 
+        {/* 4.1.4 Live Date Availability & Conflict Status Banner */}
+        {hasConflict ? (
+          <div className="rounded-2xl bg-red-50 border border-red-200 p-3.5 space-y-2 text-xs">
+            <div className="flex items-start gap-2 text-red-700 font-bold">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>Date Conflict / Unavailable</span>
+            </div>
+            <p className="text-red-600 leading-relaxed text-[11px]">{conflictMessage}</p>
+            <button
+              type="button"
+              onClick={pickNextAvailableDates}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-dark bg-white hover:bg-gray-100 border border-red-200 px-3 py-1.5 rounded-xl transition"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-airbnb" />
+              <span>Auto-pick next available dates</span>
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-emerald-50/80 border border-emerald-200 px-3.5 py-2.5 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 text-emerald-800 font-semibold">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                Dates available · {nights} {nights === 1 ? 'night' : 'nights'}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
+              [a, b) Verified
+            </span>
+          </div>
+        )}
+
+        {/* Existing Booked Date Ranges (from PostgreSQL) */}
+        <div className="rounded-2xl bg-gray-50 border border-gray-200/80 p-3.5 space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-dark flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-airbnb" />
+              Reserved Dates ({bookedRanges.length})
+            </span>
+            <span className="text-[10px] text-secondary">PostgreSQL Live</span>
+          </div>
+
+          {bookedRanges.length > 0 ? (
+            <div className="space-y-1.5 max-h-28 overflow-y-auto">
+              {bookedRanges.map((b, idx) => (
+                <div
+                  key={b.id || idx}
+                  className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-gray-200 text-[11px]"
+                >
+                  <span className="font-mono font-semibold text-dark">
+                    {b.checkIn} → {b.checkOut}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCheckInDate(b.checkIn);
+                      setCheckOutDate(b.checkOut);
+                    }}
+                    className="text-[10px] font-bold text-airbnb hover:underline"
+                    title="Click to test overlap detection with this booked range"
+                  >
+                    Test conflict
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-secondary">
+              No conflicting reservations — all upcoming dates are open!
+            </p>
+          )}
+        </div>
+
         {/* Reserve Button */}
         <button
           type="button"
+          disabled={hasConflict || isSubmitting}
           onClick={handleReserve}
-          className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#FF385C] via-[#E00B41] to-[#D70466] hover:opacity-95 text-white font-bold text-base shadow-md transition transform active:scale-[0.98] cursor-pointer"
+          className={`w-full py-3.5 px-6 rounded-2xl font-bold text-base shadow-md transition transform flex items-center justify-center gap-2 ${
+            hasConflict
+              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+              : 'bg-gradient-to-r from-[#FF385C] via-[#E00B41] to-[#D70466] hover:opacity-95 text-white active:scale-[0.98] cursor-pointer'
+          }`}
         >
-          Reserve
+          {isSubmitting
+            ? 'Checking & Saving to PostgreSQL...'
+            : hasConflict
+            ? 'Dates Unavailable'
+            : 'Reserve'}
         </button>
 
         <p className="text-center text-xs text-secondary font-medium">
-          You won't be charged yet (Instant simulation)
+          Protected by server-side Prisma transaction conflict detection
         </p>
 
         {/* Price Breakdown */}
         <div className="space-y-3 pt-4 border-t border-gray-100 text-sm">
           <div className="flex items-center justify-between text-secondary">
-            <span className="underline">${property.price} x {nights} nights</span>
+            <span className="underline">
+              ${property.price} x {nights} {nights === 1 ? 'night' : 'nights'}
+            </span>
             <span>${basePrice}</span>
           </div>
           <div className="flex items-center justify-between text-secondary">
@@ -282,9 +491,12 @@ export const BookingCard = ({ property }) => {
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-2xl font-extrabold text-dark">You're going to {property.city}!</h3>
+              <h3 className="text-2xl font-extrabold text-dark">
+                You're going to {property.city}!
+              </h3>
               <p className="text-xs text-secondary">
-                Confirmation code: <span className="font-mono font-bold text-dark">{confirmationCode}</span>
+                Confirmation code:{' '}
+                <span className="font-mono font-bold text-dark">{confirmationCode}</span>
               </p>
             </div>
 
@@ -306,8 +518,10 @@ export const BookingCard = ({ property }) => {
 
               <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-gray-200">
                 <div>
-                  <span className="text-secondary block">Dates</span>
-                  <span className="font-semibold text-dark">{checkInDate} to {checkOutDate}</span>
+                  <span className="text-secondary block">Dates ({nights} nights)</span>
+                  <span className="font-semibold text-dark">
+                    {checkInDate} to {checkOutDate}
+                  </span>
                 </div>
                 <div>
                   <span className="text-secondary block">Guests</span>

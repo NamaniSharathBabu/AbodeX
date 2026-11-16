@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { properties } from '../data/properties';
+import axios from 'axios';
 import { ImageGallery } from '../components/property/ImageGallery';
 import { BookingCard } from '../components/property/BookingCard';
 import { ReviewCard } from '../components/property/ReviewCard';
@@ -9,6 +9,8 @@ import { HostBadge } from '../components/property/HostBadge';
 import { MapPlaceholder } from '../components/search/MapPlaceholder';
 import { PropertyCard } from '../components/property/PropertyCard';
 import { useWishlist } from '../context/WishlistContext';
+import { useSearch } from '../context/SearchContext';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
   Star,
@@ -50,19 +52,42 @@ export const PropertyDetailsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isWishlisted, toggleWishlist } = useWishlist();
+  const { allProperties, refreshProperties } = useSearch();
+  const { user, token, refreshUser } = useAuth();
   const { showToast } = useToast();
 
   const [amenitiesModalOpen, setAmenitiesModalOpen] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-
-  // Find property by ID
-  const property = properties.find((p) => p.id === id) || properties[0];
-  const wishlisted = isWishlisted(property.id);
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewForm, setReviewForm] = useState({
+    rating: 5,
+    cleanliness: 5,
+    accuracy: 5,
+    communication: 5,
+    location: 5,
+    checkIn: 5,
+    value: 5,
+    comment: '',
+  });
 
   // Scroll to top on id change
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [id]);
+
+  // Find property by ID strictly from PostgreSQL database list
+  const property = allProperties.find((p) => p.id === id) || allProperties[0];
+
+  if (!property) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center text-sm text-secondary">
+        Loading property from PostgreSQL database...
+      </div>
+    );
+  }
+
+  const wishlisted = isWishlisted(property.id);
 
   const handleShare = () => {
     navigator.clipboard?.writeText(window.location.href);
@@ -78,10 +103,45 @@ export const PropertyDetailsPage = () => {
     }
   };
 
-  // Similar listings (same category or general)
-  const similarListings = properties
+  // Similar listings from PostgreSQL database
+  const similarListings = allProperties
     .filter((p) => p.id !== property.id)
     .slice(0, 4);
+
+  const handleSubmitReview = async (e) => {
+    e.preventDefault();
+    if (!reviewForm.comment.trim()) {
+      showToast('Please write a comment for your review', 'error');
+      return;
+    }
+    try {
+      setSubmittingReview(true);
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      await axios.post(
+        `http://localhost:5000/api/properties/${property.id}/reviews`,
+        reviewForm,
+        { headers }
+      );
+      await refreshProperties();
+      await refreshUser();
+      setReviewForm({
+        rating: 5,
+        cleanliness: 5,
+        accuracy: 5,
+        communication: 5,
+        location: 5,
+        checkIn: 5,
+        value: 5,
+        comment: '',
+      });
+      setShowReviewForm(false);
+      showToast('Review saved to PostgreSQL and rating recalculated!', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to submit review', 'error');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   return (
     <div className="bg-white min-h-screen pb-16">
@@ -266,10 +326,119 @@ export const PropertyDetailsPage = () => {
 
         {/* Reviews Section */}
         <section id="reviews" className="pt-12 border-t border-gray-200 space-y-8">
-          <div className="flex items-center gap-2 text-xl sm:text-2xl font-extrabold text-dark">
-            <Star className="w-6 h-6 fill-dark text-dark" />
-            <span>{property.rating.toFixed(2)} · {property.reviewCount} reviews</span>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-xl sm:text-2xl font-extrabold text-dark">
+              <Star className="w-6 h-6 fill-dark text-dark" />
+              <span>{property.rating.toFixed(2)} · {property.reviewCount} reviews</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowReviewForm(!showReviewForm)}
+              className="px-5 py-2.5 bg-dark hover:bg-black text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+            >
+              {showReviewForm ? 'Cancel Review' : 'Write a Review'}
+            </button>
           </div>
+
+          {/* 4.1.5 Interactive Guest Review & Sub-Criteria Rating Form */}
+          {showReviewForm && (
+            <form
+              onSubmit={handleSubmitReview}
+              className="bg-gray-50 rounded-3xl p-6 border border-borderLight space-y-5 animate-fade-in"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-base font-extrabold text-dark">
+                    Share your stay experience at {property.title}
+                  </h4>
+                  <p className="text-xs text-secondary">
+                    Posting as <strong>{user?.name || 'Verified Guest'}</strong> · Saved to PostgreSQL
+                  </p>
+                </div>
+
+                {/* Overall Star Picker */}
+                <div className="flex items-center gap-1.5 bg-white px-3.5 py-2 rounded-2xl border border-gray-200">
+                  <span className="text-xs font-bold text-dark mr-1">Overall:</span>
+                  {[1, 2, 3, 4, 5].map((starVal) => (
+                    <button
+                      key={starVal}
+                      type="button"
+                      onClick={() => setReviewForm({ ...reviewForm, rating: starVal })}
+                      className="cursor-pointer transition transform hover:scale-110"
+                    >
+                      <Star
+                        className={`w-5 h-5 ${
+                          starVal <= reviewForm.rating
+                            ? 'fill-amber-400 text-amber-400'
+                            : 'text-gray-300'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 6 Sub-Criteria Sliders */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {['cleanliness', 'accuracy', 'communication', 'location', 'checkIn', 'value'].map(
+                  (crit) => (
+                    <div
+                      key={crit}
+                      className="bg-white p-3 rounded-2xl border border-gray-200 space-y-1"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="capitalize font-semibold text-secondary">{crit}</span>
+                        <span className="font-bold text-dark">{reviewForm[crit]}★</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        step="0.5"
+                        value={reviewForm[crit]}
+                        onChange={(e) =>
+                          setReviewForm({ ...reviewForm, [crit]: Number(e.target.value) })
+                        }
+                        className="w-full accent-airbnb cursor-pointer"
+                      />
+                    </div>
+                  )
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-dark mb-1.5">
+                  Written Review *
+                </label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="Describe the location, amenities, host communication, and overall value..."
+                  value={reviewForm.comment}
+                  onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
+                  className="w-full p-3.5 rounded-2xl border border-borderLight bg-white text-sm text-dark focus:border-dark focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowReviewForm(false)}
+                  className="px-4 py-2 text-xs font-bold text-secondary hover:text-dark"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingReview}
+                  className="px-6 py-2.5 bg-airbnb hover:bg-airbnb-hover text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition cursor-pointer"
+                >
+                  {submittingReview ? 'Saving to PostgreSQL...' : 'Submit Review'}
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Rating Breakdown Bars */}
           {property.ratingBreakdown && (

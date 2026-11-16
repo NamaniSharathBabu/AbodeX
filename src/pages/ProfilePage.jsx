@@ -1,23 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
+import { useSearch } from '../context/SearchContext';
 import { TripCard } from '../components/profile/TripCard';
 import { PropertyCard } from '../components/property/PropertyCard';
-import { properties } from '../data/properties';
 import { useToast } from '../context/ToastContext';
 import {
-  User,
   ShieldCheck,
   Award,
-  Calendar,
   Heart,
   Briefcase,
   Settings,
   Edit3,
   Check,
-  Compass,
+  HelpCircle,
+  KeyRound,
+  ArrowLeftRight,
 } from 'lucide-react';
+
+const API_BASE = 'http://localhost:5000';
 
 export const ProfilePage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -25,9 +28,52 @@ export const ProfilePage = () => {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isEditing, setIsEditing] = useState(false);
 
-  const { user, updateProfile } = useAuth();
+  const { user, token, updateProfile, switchUserMode, isHostSessionUnlocked } = useAuth();
   const { wishlist } = useWishlist();
+  const { allProperties } = useSearch();
   const { showToast } = useToast();
+
+  const [issues, setIssues] = useState([]);
+  const [issueForm, setIssueForm] = useState({
+    subject: '',
+    category: 'Booking / Dates',
+    description: '',
+  });
+  const [submittingIssue, setSubmittingIssue] = useState(false);
+
+  const fetchUserIssues = useCallback(async () => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.get(`${API_BASE}/api/issues`, { headers });
+      if (Array.isArray(res.data)) setIssues(res.data);
+    } catch {
+      // Ignore if offline
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchUserIssues();
+  }, [fetchUserIssues]);
+
+  const handleSubmitIssue = async (e) => {
+    e.preventDefault();
+    if (!issueForm.subject.trim() || !issueForm.description.trim()) {
+      showToast('Please provide a subject and description', 'error');
+      return;
+    }
+    try {
+      setSubmittingIssue(true);
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      await axios.post(`${API_BASE}/api/issues`, issueForm, { headers });
+      setIssueForm({ subject: '', category: 'Booking / Dates', description: '' });
+      await fetchUserIssues();
+      showToast('Support issue submitted to Admin in PostgreSQL!', 'success');
+    } catch {
+      showToast('Failed to submit support issue', 'error');
+    } finally {
+      setSubmittingIssue(false);
+    }
+  };
 
   const [formData, setFormData] = useState({
     name: user?.name || '',
@@ -35,6 +81,17 @@ export const ProfilePage = () => {
     phone: user?.phone || '',
     about: user?.about || '',
   });
+
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        about: user.about || '',
+      });
+    }
+  }, [user]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -53,7 +110,7 @@ export const ProfilePage = () => {
     showToast('Profile updated successfully!', 'success');
   };
 
-  const wishlistedProperties = properties.filter((p) => wishlist.includes(p.id));
+  const wishlistedProperties = allProperties.filter((p) => wishlist.includes(p.id));
 
   return (
     <div className="bg-bgLight min-h-screen py-10">
@@ -138,33 +195,67 @@ export const ProfilePage = () => {
               <button
                 type="button"
                 onClick={() => setIsEditing(!isEditing)}
-                className="w-full py-2.5 px-4 border border-dark rounded-xl text-xs font-bold text-dark hover:bg-gray-100 transition flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-4 border border-dark rounded-xl text-xs font-bold text-dark hover:bg-gray-100 transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Edit3 className="w-4 h-4" />
                 <span>{isEditing ? 'Cancel editing' : 'Edit profile'}</span>
               </button>
+
+              {user?.role !== 'ADMIN' && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (user?.role === 'HOST') {
+                      await switchUserMode('GUEST');
+                      showToast('Switched to Guest Mode (no password needed)!', 'info');
+                    } else {
+                      const switched = await switchUserMode('HOST', () => {
+                        showToast('Host Mode unlocked for this session!', 'success');
+                      });
+                      if (switched) showToast('Switched to Host Mode!', 'success');
+                    }
+                  }}
+                  className="w-full py-2.5 px-4 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl text-xs font-bold text-amber-900 transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {user?.role === 'HOST' ? (
+                    <>
+                      <ArrowLeftRight className="w-4 h-4" />
+                      <span>Switch to Guest Mode (Instant)</span>
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="w-4 h-4" />
+                      <span>
+                        {isHostSessionUnlocked()
+                          ? 'Switch to Host Mode (Unlocked)'
+                          : 'Switch to Host Mode (Passkey)'}
+                      </span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Right Column: Tabs (Trips, Wishlists, Settings) */}
+          {/* Right Column: Tabs (Trips, Wishlists, Support Issues, Settings) */}
           <div className="lg:col-span-2 space-y-6">
             {/* Tab Navigation */}
-            <div className="bg-white rounded-2xl p-1.5 border border-borderLight flex items-center shadow-xs">
+            <div className="bg-white rounded-2xl p-1.5 border border-borderLight flex flex-wrap items-center shadow-xs gap-1">
               <button
                 onClick={() => handleTabChange('trips')}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition ${
+                className={`flex-1 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
                   activeTab === 'trips'
                     ? 'bg-dark text-white shadow-xs'
                     : 'text-secondary hover:text-dark'
                 }`}
               >
                 <Briefcase className="w-4 h-4" />
-                <span>Trips & Bookings</span>
+                <span>Trips</span>
               </button>
 
               <button
                 onClick={() => handleTabChange('wishlist')}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition ${
+                className={`flex-1 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
                   activeTab === 'wishlist'
                     ? 'bg-dark text-white shadow-xs'
                     : 'text-secondary hover:text-dark'
@@ -175,8 +266,20 @@ export const ProfilePage = () => {
               </button>
 
               <button
+                onClick={() => handleTabChange('support')}
+                className={`flex-1 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                  activeTab === 'support'
+                    ? 'bg-dark text-white shadow-xs'
+                    : 'text-secondary hover:text-dark'
+                }`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>Support ({issues.length})</span>
+              </button>
+
+              <button
                 onClick={() => handleTabChange('settings')}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition ${
+                className={`flex-1 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
                   activeTab === 'settings'
                     ? 'bg-dark text-white shadow-xs'
                     : 'text-secondary hover:text-dark'
@@ -261,6 +364,122 @@ export const ProfilePage = () => {
                     </Link>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Tab 2.5: Support & Issues */}
+            {activeTab === 'support' && (
+              <div className="space-y-6 animate-fade-in">
+                <form
+                  onSubmit={handleSubmitIssue}
+                  className="bg-white rounded-3xl p-6 border border-borderLight shadow-xs space-y-4"
+                >
+                  <div>
+                    <h3 className="text-lg font-bold text-dark">
+                      Report an Issue to Platform Admin
+                    </h3>
+                    <p className="text-xs text-secondary">
+                      Submit a booking dispute, refund request, or account issue. Admin resolutions appear below.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold uppercase text-dark mb-1">
+                        Subject *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g., Date change or refund assistance"
+                        value={issueForm.subject}
+                        onChange={(e) =>
+                          setIssueForm({ ...issueForm, subject: e.target.value })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-borderLight text-xs font-medium text-dark"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-dark mb-1">
+                        Category
+                      </label>
+                      <select
+                        value={issueForm.category}
+                        onChange={(e) =>
+                          setIssueForm({ ...issueForm, category: e.target.value })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-borderLight text-xs font-bold text-dark bg-white"
+                      >
+                        <option value="Booking / Dates">Booking / Dates</option>
+                        <option value="Refund / Payment">Refund / Payment</option>
+                        <option value="Host Account">Host Account</option>
+                        <option value="Property Issue">Property Issue</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-dark mb-1">
+                      Description *
+                    </label>
+                    <textarea
+                      rows="3"
+                      required
+                      placeholder="Describe the issue in detail..."
+                      value={issueForm.description}
+                      onChange={(e) =>
+                        setIssueForm({ ...issueForm, description: e.target.value })
+                      }
+                      className="w-full p-3 rounded-xl border border-borderLight text-xs font-medium text-dark"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={submittingIssue}
+                      className="px-5 py-2.5 bg-airbnb hover:bg-airbnb-hover text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
+                    >
+                      {submittingIssue ? 'Submitting...' : 'Submit Issue to Admin'}
+                    </button>
+                  </div>
+                </form>
+
+                {/* User's Submitted Issues & Admin Resolutions */}
+                <div className="space-y-3">
+                  <h4 className="text-base font-bold text-dark">Your Support Tickets</h4>
+                  {issues.map((issue) => (
+                    <div
+                      key={issue.id}
+                      className="bg-white rounded-2xl p-5 border border-borderLight space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-airbnb">{issue.category}</span>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                            issue.status === 'RESOLVED'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : issue.status === 'IN_PROGRESS'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-red-100 text-red-700'
+                          }`}
+                        >
+                          {issue.status}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-dark">{issue.subject}</p>
+                      <p className="text-xs text-secondary">{issue.description}</p>
+                      {issue.adminResolution && (
+                        <div className="mt-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                          <span className="font-bold text-emerald-900 block">
+                            Admin Resolution:
+                          </span>
+                          <span className="text-emerald-800">{issue.adminResolution}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
