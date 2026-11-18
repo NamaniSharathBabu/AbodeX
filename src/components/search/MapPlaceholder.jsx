@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
-  Plus,
-  Minus,
   Layers,
   Star,
   X,
@@ -10,275 +10,456 @@ import {
   Navigation,
   ExternalLink,
   Compass,
+  Maximize2,
+  ArrowRight,
+  Home,
 } from 'lucide-react';
-import { getPropertyPOIs } from '../../utils/stayfinderAlgorithms';
+import { getPropertyPOIs, calculateHaversineDistanceKm } from '../../utils/stayfinderAlgorithms';
+import { useSearch } from '../../context/SearchContext';
+
+// Map Tile Providers (Google Maps Road, Google Satellite Hybrid, Google Terrain, OpenStreetMap)
+const TILE_LAYERS = {
+  googleRoad: {
+    name: 'Google Maps',
+    url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    attribution: 'Map data © Google',
+  },
+  googleSatellite: {
+    name: 'Satellite',
+    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    attribution: 'Imagery © Google',
+  },
+  googleTerrain: {
+    name: 'Terrain',
+    url: 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+    attribution: 'Terrain © Google',
+  },
+  osm: {
+    name: 'Street OSM',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '© OpenStreetMap contributors',
+  },
+};
 
 export const MapPlaceholder = ({
   properties = [],
   highlightedPropertyId = null,
   onPropertySelect = null,
+  singlePropertyFocus = null,
   className = '',
 }) => {
-  const [zoom, setZoom] = useState(12);
-  const [selectedPin, setSelectedPin] = useState(null);
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const tileLayerRef = useRef(null);
+  const markersLayerRef = useRef(null);
+
+  const navigate = useNavigate();
+  const { allProperties, userCoords, detectUserLocation } = useSearch();
+
+  const [layerKey, setLayerKey] = useState('googleRoad');
+  const [selectedPin, setSelectedPin] = useState(singlePropertyFocus || null);
   const [selectedPOI, setSelectedPOI] = useState(null);
   const [showPOIs, setShowPOIs] = useState(true);
-  const [mapStyle, setMapStyle] = useState('standard'); // 'standard', 'satellite', 'dark'
+  const [showNearbyStays, setShowNearbyStays] = useState(true);
 
-  const pinPositions = [
-    { top: '35%', left: '42%' },
-    { top: '22%', left: '60%' },
-    { top: '48%', left: '28%' },
-    { top: '65%', left: '55%' },
-    { top: '30%', left: '75%' },
-    { top: '58%', left: '72%' },
-    { top: '78%', left: '35%' },
-    { top: '40%', left: '18%' },
-    { top: '15%', left: '30%' },
-    { top: '72%', left: '80%' },
-    { top: '50%', left: '50%' },
-    { top: '28%', left: '48%' },
-  ];
+  // Combine passed properties with all properties when "Show Nearby Stays" is enabled on a single property page
+  const mapProperties = useMemo(() => {
+    if (singlePropertyFocus && showNearbyStays && allProperties.length > 0) {
+      return allProperties;
+    }
+    return properties.length > 0 ? properties : allProperties;
+  }, [properties, allProperties, singlePropertyFocus, showNearbyStays]);
 
-  const poiPositions = [
-    { top: '27%', left: '36%' },
-    { top: '44%', left: '54%' },
-    { top: '60%', left: '38%' },
-    { top: '33%', left: '64%' },
-  ];
+  // Active focused property for POIs and distance calculation
+  const activeFocusProperty =
+    selectedPin || singlePropertyFocus || mapProperties[0] || null;
 
-  // Active POIs for the focused property (or first property in list)
-  const activeFocusProperty = selectedPin || properties[0] || null;
-  const activePOIs = useMemo(() => {
-    if (!activeFocusProperty) return [];
-    return getPropertyPOIs(activeFocusProperty).slice(0, 4);
+  // Compute nearby properties sorted by distance from the focused property
+  const nearbyPropertiesList = useMemo(() => {
+    if (!activeFocusProperty?.coordinates) return [];
+    return allProperties
+      .filter((p) => p.id !== activeFocusProperty.id && p.coordinates)
+      .map((p) => ({
+        ...p,
+        distFromFocusKm: calculateHaversineDistanceKm(
+          activeFocusProperty.coordinates,
+          p.coordinates
+        ),
+      }))
+      .sort((a, b) => (a.distFromFocusKm ?? 99999) - (b.distFromFocusKm ?? 99999))
+      .slice(0, 5);
+  }, [activeFocusProperty, allProperties]);
+
+  // Generate real coordinate offsets for POIs around the active property
+  const activePOIsWithCoords = useMemo(() => {
+    if (!activeFocusProperty?.coordinates) return [];
+    const baseLat = activeFocusProperty.coordinates.lat;
+    const baseLng = activeFocusProperty.coordinates.lng;
+    const offsets = [
+      { dLat: 0.0045, dLng: -0.0055 },
+      { dLat: -0.005, dLng: 0.0065 },
+      { dLat: 0.006, dLng: 0.0045 },
+      { dLat: -0.0035, dLng: -0.006 },
+    ];
+    return getPropertyPOIs(activeFocusProperty)
+      .slice(0, 4)
+      .map((poi, idx) => ({
+        ...poi,
+        lat: baseLat + offsets[idx % offsets.length].dLat,
+        lng: baseLng + offsets[idx % offsets.length].dLng,
+      }));
   }, [activeFocusProperty]);
 
-  const handlePinClick = (e, prop) => {
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
+
+    const initialCenter = singlePropertyFocus?.coordinates
+      ? [singlePropertyFocus.coordinates.lat, singlePropertyFocus.coordinates.lng]
+      : mapProperties[0]?.coordinates
+      ? [mapProperties[0].coordinates.lat, mapProperties[0].coordinates.lng]
+      : [34.0259, -118.7798];
+
+    const initialZoom = singlePropertyFocus ? 14 : 3;
+
+    const map = L.map(mapContainerRef.current, {
+      center: initialCenter,
+      zoom: initialZoom,
+      zoomControl: false,
+      scrollWheelZoom: true,
+    });
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const tileConfig = TILE_LAYERS[layerKey];
+    const tileLayer = L.tileLayer(tileConfig.url, {
+      attribution: tileConfig.attribution,
+      maxZoom: 20,
+    }).addTo(map);
+
+    const markersLayer = L.layerGroup().addTo(map);
+
+    mapInstanceRef.current = map;
+    tileLayerRef.current = tileLayer;
+    markersLayerRef.current = markersLayer;
+
+    // If multiple properties and no single focus, fit bounds to show them
+    if (!singlePropertyFocus && mapProperties.length > 1) {
+      const validCoords = mapProperties
+        .filter((p) => p.coordinates?.lat != null && p.coordinates?.lng != null)
+        .map((p) => [p.coordinates.lat, p.coordinates.lng]);
+      if (validCoords.length > 1) {
+        map.fitBounds(validCoords, { padding: [45, 45], maxZoom: 12 });
+      }
+    }
+
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  // Switch Tile Layer (Google Road / Google Satellite / Terrain / OSM)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+    const tileConfig = TILE_LAYERS[layerKey];
+    tileLayerRef.current = L.tileLayer(tileConfig.url, {
+      attribution: tileConfig.attribution,
+      maxZoom: 20,
+    }).addTo(map);
+  }, [layerKey]);
+
+  // Fly to singlePropertyFocus when property details page ID changes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !singlePropertyFocus?.coordinates) return;
+    setSelectedPin(singlePropertyFocus);
+    map.flyTo(
+      [singlePropertyFocus.coordinates.lat, singlePropertyFocus.coordinates.lng],
+      14,
+      { duration: 1.1 }
+    );
+  }, [singlePropertyFocus?.id]);
+
+  // Render Property Price Markers, User GPS Marker & POI Markers
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const markersLayer = markersLayerRef.current;
+    if (!map || !markersLayer) return;
+
+    markersLayer.clearLayers();
+
+    // 1. Render Property Price Pill Markers
+    mapProperties.forEach((prop) => {
+      if (!prop.coordinates || prop.coordinates.lat == null) return;
+      const isSelected =
+        selectedPin?.id === prop.id ||
+        highlightedPropertyId === prop.id ||
+        singlePropertyFocus?.id === prop.id;
+
+      const bgColor = isSelected ? '#FF385C' : '#ffffff';
+      const textColor = isSelected ? '#ffffff' : '#222222';
+      const border = isSelected ? '2px solid #ffffff' : '1.5px solid #d1d5db';
+      const scale = isSelected ? 'scale(1.12)' : 'scale(1)';
+      const zIdx = isSelected ? 900 : 500;
+
+      const priceIcon = L.divIcon({
+        className: 'custom-stayfinder-price-pin',
+        html: `
+          <div style="
+            background:${bgColor};
+            color:${textColor};
+            border:${border};
+            transform:${scale};
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-weight: 800;
+            font-size: 12px;
+            font-family: system-ui, sans-serif;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.22);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+          ">
+            <span>$${prop.price}</span>
+            <span style="font-size:10px; opacity:0.85;">★${prop.rating.toFixed(1)}</span>
+          </div>
+        `,
+        iconSize: [76, 30],
+        iconAnchor: [38, 15],
+      });
+
+      const marker = L.marker([prop.coordinates.lat, prop.coordinates.lng], {
+        icon: priceIcon,
+        zIndexOffset: zIdx,
+      });
+
+      marker.on('click', () => {
+        setSelectedPOI(null);
+        setSelectedPin(prop);
+        if (onPropertySelect) onPropertySelect(prop);
+        map.flyTo([prop.coordinates.lat, prop.coordinates.lng], Math.max(map.getZoom(), 13), {
+          duration: 0.9,
+        });
+      });
+
+      marker.addTo(markersLayer);
+    });
+
+    // 2. Render Nearby Points of Interest (POI) Pins around Active Property
+    if (showPOIs && activePOIsWithCoords.length > 0) {
+      activePOIsWithCoords.forEach((poi) => {
+        const poiIcon = L.divIcon({
+          className: 'custom-stayfinder-poi-pin',
+          html: `
+            <div style="
+              background: #065f46;
+              color: #ffffff;
+              border: 2px solid #ffffff;
+              padding: 3px 8px;
+              border-radius: 9999px;
+              font-weight: 700;
+              font-size: 10px;
+              font-family: system-ui, sans-serif;
+              box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+              white-space: nowrap;
+              cursor: pointer;
+            ">
+              📍 ${poi.name.length > 18 ? poi.name.slice(0, 18) + '…' : poi.name} (${poi.distanceKm}km)
+            </div>
+          `,
+          iconSize: [140, 24],
+          iconAnchor: [70, 12],
+        });
+
+        const poiMarker = L.marker([poi.lat, poi.lng], { icon: poiIcon, zIndexOffset: 300 });
+        poiMarker.on('click', () => {
+          setSelectedPin(null);
+          setSelectedPOI(poi);
+        });
+        poiMarker.addTo(markersLayer);
+      });
+    }
+
+    // 3. Render User GPS Location Marker if active
+    if (userCoords?.lat != null && userCoords?.lng != null) {
+      const gpsIcon = L.divIcon({
+        className: 'custom-user-gps-pin',
+        html: `
+          <div style="
+            background: #2563eb;
+            color: #ffffff;
+            border: 2px solid #ffffff;
+            padding: 4px 9px;
+            border-radius: 9999px;
+            font-weight: 800;
+            font-size: 10px;
+            box-shadow: 0 0 0 6px rgba(37,99,235,0.25);
+            white-space: nowrap;
+          ">
+            ● Your Location
+          </div>
+        `,
+        iconSize: [100, 24],
+        iconAnchor: [50, 12],
+      });
+      L.marker([userCoords.lat, userCoords.lng], { icon: gpsIcon, zIndexOffset: 1000 }).addTo(
+        markersLayer
+      );
+    }
+  }, [
+    mapProperties,
+    selectedPin,
+    highlightedPropertyId,
+    singlePropertyFocus,
+    showPOIs,
+    activePOIsWithCoords,
+    userCoords,
+  ]);
+
+  const handleFitAllStays = (e) => {
     e.stopPropagation();
+    const map = mapInstanceRef.current;
+    if (!map || mapProperties.length === 0) return;
+    const validCoords = mapProperties
+      .filter((p) => p.coordinates?.lat != null && p.coordinates?.lng != null)
+      .map((p) => [p.coordinates.lat, p.coordinates.lng]);
+    if (validCoords.length > 0) {
+      map.fitBounds(validCoords, { padding: [50, 50], maxZoom: 12 });
+    }
+  };
+
+  const handleFlyToProperty = (prop) => {
     setSelectedPOI(null);
     setSelectedPin(prop);
-    if (onPropertySelect) onPropertySelect(prop);
+    const map = mapInstanceRef.current;
+    if (map && prop.coordinates) {
+      map.flyTo([prop.coordinates.lat, prop.coordinates.lng], 14, { duration: 1.0 });
+    }
   };
 
   return (
-    <div
-      onClick={() => {
-        setSelectedPin(null);
-        setSelectedPOI(null);
-      }}
-      className={`relative w-full h-full overflow-hidden select-none bg-[#e5e3df] ${className}`}
-      style={{
-        backgroundImage:
-          mapStyle === 'satellite'
-            ? 'radial-gradient(circle at 50% 50%, #2f3e2e 0%, #1c261c 100%)'
-            : mapStyle === 'dark'
-            ? 'radial-gradient(circle at 50% 50%, #2c3437 0%, #1a1e21 100%)'
-            : 'radial-gradient(circle at 50% 50%, #f4f3f0 0%, #e8e6e1 100%)',
-      }}
-    >
-      {/* Visual map vector decorations (roads, water bodies, parks) */}
-      <svg
-        className="absolute inset-0 w-full h-full opacity-35 pointer-events-none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M -100 120 C 150 200, 300 100, 600 300 C 900 500, 1100 250, 1400 400"
-          stroke={mapStyle === 'dark' ? '#3e4a50' : '#d2d0c8'}
-          strokeWidth="32"
-          fill="none"
-        />
-        <path
-          d="M 200 -50 C 350 150, 450 400, 500 800"
-          stroke={mapStyle === 'dark' ? '#3e4a50' : '#d2d0c8'}
-          strokeWidth="24"
-          fill="none"
-        />
-        <path
-          d="M 500 -50 C 600 250, 750 450, 950 800"
-          stroke={mapStyle === 'dark' ? '#4f5d64' : '#c3c0b6'}
-          strokeWidth="16"
-          fill="none"
-        />
-        {/* River */}
-        <path
-          d="M -50 400 C 250 350, 450 500, 750 420 C 1050 340, 1200 480, 1500 450"
-          stroke={mapStyle === 'dark' ? '#1f2e3d' : '#aadaff'}
-          strokeWidth="48"
-          fill="none"
-          strokeLinecap="round"
-        />
-        {/* Park area */}
-        <ellipse
-          cx="65%"
-          cy="35%"
-          rx="140"
-          ry="90"
-          fill={mapStyle === 'dark' ? '#26382b' : '#c8e6c9'}
-          opacity="0.5"
-        />
-        <ellipse
-          cx="25%"
-          cy="65%"
-          rx="120"
-          ry="70"
-          fill={mapStyle === 'dark' ? '#26382b' : '#c8e6c9'}
-          opacity="0.5"
-        />
-      </svg>
+    <div className={`relative w-full h-full overflow-hidden bg-gray-100 ${className}`}>
+      {/* Real Interactive Leaflet + Google Maps Tile Canvas */}
+      <div ref={mapContainerRef} className="w-full h-full z-10" />
 
-      {/* Top-Left POI Layer Toggle & Coordinates Pill */}
-      <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowPOIs(!showPOIs);
-          }}
-          className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-md border transition flex items-center gap-1.5 cursor-pointer ${
-            showPOIs
-              ? 'bg-emerald-700 text-white border-emerald-700'
-              : 'bg-white text-dark border-gray-300'
-          }`}
-        >
-          <Compass className="w-3.5 h-3.5" />
-          <span>{showPOIs ? 'Nearby POIs: ON' : 'Nearby POIs: OFF'}</span>
-        </button>
+      {/* Top Controls Bar: Map Type Switcher, POI Toggle, Fit All, Near Me */}
+      <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        {/* Left Controls */}
+        <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+          {/* Map Style Pills (Google Maps / Satellite / Terrain) */}
+          <div className="bg-white/95 backdrop-blur-xs rounded-2xl shadow-md border border-gray-200 p-1 flex items-center gap-1">
+            {Object.entries(TILE_LAYERS).map(([key, cfg]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setLayerKey(key)}
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                  layerKey === key
+                    ? 'bg-dark text-white shadow-2xs'
+                    : 'text-secondary hover:text-dark'
+                }`}
+              >
+                {cfg.name}
+              </button>
+            ))}
+          </div>
 
-        {activeFocusProperty?.coordinates && (
-          <a
-            href={`https://www.google.com/maps?q=${activeFocusProperty.coordinates.lat},${activeFocusProperty.coordinates.lng}`}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="px-3 py-1.5 rounded-full bg-white/95 hover:bg-white text-dark text-[11px] font-bold shadow-md border border-gray-200 flex items-center gap-1"
-            title="Open exact coordinates in Google Maps"
-          >
-            <MapPin className="w-3 h-3 text-airbnb" />
-            <span>
-              {activeFocusProperty.coordinates.lat.toFixed(3)},{' '}
-              {activeFocusProperty.coordinates.lng.toFixed(3)}
-            </span>
-            <ExternalLink className="w-3 h-3 text-secondary" />
-          </a>
-        )}
-      </div>
-
-      {/* Map Control Buttons */}
-      <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
-        <div className="bg-white rounded-2xl shadow-search border border-borderLight overflow-hidden flex flex-col">
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoom((z) => Math.min(18, z + 1));
-            }}
-            className="p-2.5 hover:bg-gray-100 text-dark transition flex items-center justify-center cursor-pointer"
-            title="Zoom In"
+            onClick={() => setShowPOIs(!showPOIs)}
+            className={`px-3 py-1.5 rounded-2xl text-[11px] font-bold shadow-md border transition flex items-center gap-1 cursor-pointer ${
+              showPOIs
+                ? 'bg-emerald-700 text-white border-emerald-700'
+                : 'bg-white text-dark border-gray-200'
+            }`}
           >
-            <Plus className="w-4 h-4" />
+            <Compass className="w-3.5 h-3.5" />
+            <span>POIs</span>
           </button>
-          <div className="h-px bg-gray-100" />
+
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoom((z) => Math.max(4, z - 1));
-            }}
-            className="p-2.5 hover:bg-gray-100 text-dark transition flex items-center justify-center cursor-pointer"
-            title="Zoom Out"
+            onClick={handleFitAllStays}
+            className="px-3 py-1.5 rounded-2xl bg-white hover:bg-gray-50 text-dark text-[11px] font-bold shadow-md border border-gray-200 flex items-center gap-1 cursor-pointer"
+            title="Zoom out to see all properties on the map"
           >
-            <Minus className="w-4 h-4" />
+            <Maximize2 className="w-3 h-3 text-airbnb" />
+            <span>Show All ({mapProperties.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              detectUserLocation((coords) => {
+                const map = mapInstanceRef.current;
+                if (map) {
+                  map.flyTo([coords.lat, coords.lng], 11, { duration: 1.1 });
+                }
+              });
+            }}
+            className="px-3 py-1.5 rounded-2xl bg-white hover:bg-gray-50 text-airbnb text-[11px] font-bold shadow-md border border-gray-200 flex items-center gap-1 cursor-pointer"
+            title="Center map on your location"
+          >
+            <Navigation className="w-3 h-3" />
+            <span>Near Me</span>
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setMapStyle((s) =>
-              s === 'standard' ? 'satellite' : s === 'satellite' ? 'dark' : 'standard'
-            );
-          }}
-          className="p-2.5 bg-white hover:bg-gray-100 rounded-2xl shadow-search border border-borderLight text-dark transition flex items-center justify-center cursor-pointer"
-          title="Toggle Layers"
-        >
-          <Layers className="w-4 h-4" />
-        </button>
+        {/* Quick Jump Selector to Any Property on Map */}
+        <div className="pointer-events-auto">
+          <select
+            value={selectedPin?.id || ''}
+            onChange={(e) => {
+              const found = mapProperties.find((p) => p.id === e.target.value);
+              if (found) handleFlyToProperty(found);
+            }}
+            className="px-3 py-1.5 rounded-2xl bg-white/95 backdrop-blur-xs shadow-md border border-gray-200 text-xs font-bold text-dark focus:outline-none cursor-pointer max-w-[220px]"
+          >
+            <option value="">Jump to stay on map...</option>
+            {mapProperties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.city} — ${p.price}/nt ({p.rating}★)
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Floating Nearby Points of Interest (POI) Pins */}
-      {showPOIs &&
-        activePOIs.map((poi, idx) => {
-          const pos = poiPositions[idx % poiPositions.length];
-          const isSelected = selectedPOI?.name === poi.name;
-          return (
-            <div
-              key={poi.name}
-              style={{ top: pos.top, left: pos.left }}
-              className="absolute z-10 transform -translate-x-1/2 -translate-y-1/2"
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPin(null);
-                  setSelectedPOI(poi);
-                }}
-                className={`px-2.5 py-1 rounded-full text-[10px] font-bold shadow-md flex items-center gap-1 transition cursor-pointer ${
-                  isSelected
-                    ? 'bg-emerald-700 text-white scale-110 ring-2 ring-white z-30'
-                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300'
-                }`}
-              >
-                <Navigation className="w-2.5 h-2.5 text-emerald-700" />
-                <span className="truncate max-w-[110px]">{poi.name}</span>
-              </button>
-            </div>
-          );
-        })}
-
-      {/* Floating Property Pins */}
-      {properties.map((prop, idx) => {
-        const pos =
-          properties.length === 1
-            ? { top: '50%', left: '50%' }
-            : pinPositions[idx % pinPositions.length];
-        const isSelected = selectedPin?.id === prop.id;
-        const isHighlighted = highlightedPropertyId === prop.id;
-
-        return (
-          <div
-            key={prop.id}
-            style={{ top: pos.top, left: pos.left }}
-            className="absolute z-20 transform -translate-x-1/2 -translate-y-1/2 transition-all duration-300"
-          >
+      {/* Nearby Stays Quick Chips Strip at Bottom Left */}
+      {nearbyPropertiesList.length > 0 && (
+        <div className="absolute bottom-3 left-3 z-20 max-w-[75%] overflow-x-auto no-scrollbar flex items-center gap-1.5 bg-white/90 backdrop-blur-xs p-1.5 rounded-2xl shadow-md border border-gray-200">
+          <span className="text-[10px] font-extrabold uppercase text-secondary px-2 shrink-0">
+            Other Stays on Map:
+          </span>
+          {nearbyPropertiesList.map((np) => (
             <button
+              key={np.id}
               type="button"
-              onClick={(e) => handlePinClick(e, prop)}
-              className={`px-3 py-1.5 rounded-full font-bold text-xs shadow-md transition-all transform duration-200 cursor-pointer flex items-center gap-1 ${
-                isSelected || isHighlighted
-                  ? 'bg-dark text-white scale-110 ring-2 ring-white z-30 shadow-xl'
-                  : 'bg-white hover:bg-gray-50 text-dark hover:scale-105 border border-gray-300'
-              }`}
+              onClick={() => handleFlyToProperty(np)}
+              className="px-2.5 py-1 rounded-xl bg-gray-100 hover:bg-dark hover:text-white text-[11px] font-bold text-dark transition shrink-0 cursor-pointer flex items-center gap-1"
             >
-              <span>${prop.price}</span>
-              {prop.suitability?.distanceKm != null && (
-                <span className="text-[9px] font-normal opacity-80">
-                  · {prop.suitability.distanceKm}km
-                </span>
-              )}
+              <span>{np.city}</span>
+              <span className="text-airbnb">${np.price}</span>
             </button>
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
 
-      {/* Selected POI Info Popup */}
+      {/* Selected POI Info Card */}
       {selectedPOI && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 w-72 bg-white rounded-2xl shadow-modal border border-emerald-200 p-4 space-y-1.5 animate-fade-in"
-        >
+        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-30 w-72 bg-white rounded-2xl shadow-2xl border border-emerald-300 p-4 space-y-1.5 animate-fade-in">
           <div className="flex items-center justify-between">
             <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase">
               {selectedPOI.category}
@@ -288,71 +469,84 @@ export const MapPlaceholder = ({
               onClick={() => setSelectedPOI(null)}
               className="text-secondary hover:text-dark cursor-pointer"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
           <p className="text-xs font-extrabold text-dark">{selectedPOI.name}</p>
           <p className="text-[11px] text-secondary">
-            Distance: <strong>{selectedPOI.distanceKm} km</strong> · Approx.{' '}
-            <strong>{selectedPOI.walkMins} mins walk</strong> from property
+            <strong>{selectedPOI.distanceKm} km</strong> from stay ·{' '}
+            <strong>{selectedPOI.walkMins} mins walk</strong>
           </p>
         </div>
       )}
 
-      {/* Selected Property Preview Mini Card */}
+      {/* Selected Property Interactive Card on Map */}
       {selectedPin && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 w-72 bg-white rounded-2xl shadow-modal border border-borderLight overflow-hidden animate-fade-in"
-        >
+        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-30 w-80 bg-white rounded-3xl shadow-2xl border border-borderLight overflow-hidden animate-fade-in">
           <button
             type="button"
             onClick={() => setSelectedPin(null)}
-            className="absolute top-2 right-2 z-10 p-1 rounded-full bg-white/80 hover:bg-white text-dark shadow-xs cursor-pointer"
+            className="absolute top-2.5 right-2.5 z-10 p-1.5 rounded-full bg-white/90 hover:bg-white text-dark shadow-md cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
 
-          <Link to={`/rooms/${selectedPin.id}`} className="block">
-            <div className="aspect-video w-full overflow-hidden bg-gray-100">
-              <img
-                src={selectedPin.images[0]}
-                alt={selectedPin.title}
-                className="w-full h-full object-cover hover:scale-105 transition duration-300"
-              />
-            </div>
-            <div className="p-3">
-              <div className="flex items-center justify-between text-xs font-semibold text-dark">
-                <span className="truncate max-w-[180px]">
+          <div className="aspect-16/9 w-full overflow-hidden bg-gray-100 relative">
+            <img
+              src={selectedPin.images?.[0]}
+              alt={selectedPin.title}
+              className="w-full h-full object-cover"
+            />
+            <span className="absolute bottom-2 left-2.5 px-2.5 py-0.5 rounded-full bg-dark/85 text-white text-[10px] font-bold">
+              {selectedPin.type}
+            </span>
+          </div>
+
+          <div className="p-4 space-y-2.5">
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-dark">
+                <span className="truncate max-w-[190px]">
                   {selectedPin.city}, {selectedPin.country}
                 </span>
-                <span className="flex items-center gap-0.5">
-                  <Star className="w-3 h-3 fill-dark text-dark" />
-                  {selectedPin.rating.toFixed(2)}
+                <span className="flex items-center gap-0.5 shrink-0">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                  {selectedPin.rating?.toFixed(2)} ({selectedPin.reviewCount})
                 </span>
               </div>
-              <p className="text-[11px] text-secondary truncate mt-0.5">{selectedPin.title}</p>
-              <div className="mt-1.5 flex items-baseline justify-between text-xs">
-                <div>
-                  <span className="font-bold text-dark">${selectedPin.price}</span>
-                  <span className="text-secondary text-[10px]"> night</span>
-                </div>
+              <p className="text-xs text-secondary truncate mt-0.5">{selectedPin.title}</p>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              <div>
+                <span className="text-base font-extrabold text-dark">${selectedPin.price}</span>
+                <span className="text-xs text-secondary"> / night</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
                 {selectedPin.coordinates && (
-                  <span className="text-[10px] font-mono text-secondary">
-                    {selectedPin.coordinates.lat.toFixed(2)}°,{' '}
-                    {selectedPin.coordinates.lng.toFixed(2)}°
-                  </span>
+                  <a
+                    href={`https://www.google.com/maps?q=${selectedPin.coordinates.lat},${selectedPin.coordinates.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2 rounded-xl border border-gray-200 hover:border-dark text-dark transition"
+                    title="Open in Google Maps"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
                 )}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/rooms/${selectedPin.id}`)}
+                  className="px-3.5 py-2 rounded-xl bg-airbnb hover:bg-airbnb-hover text-white text-xs font-bold flex items-center gap-1 shadow-sm transition cursor-pointer"
+                >
+                  <span>Choose Stay</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-          </Link>
+          </div>
         </div>
       )}
-
-      {/* Bottom map watermark / badge */}
-      <div className="absolute bottom-3 right-4 z-10 bg-white/85 backdrop-blur-xs text-[10px] text-secondary px-2.5 py-1 rounded-md border border-gray-200 pointer-events-none">
-        StayFinder Geospatial & POI Layer · Zoom: {zoom}
-      </div>
     </div>
   );
 };

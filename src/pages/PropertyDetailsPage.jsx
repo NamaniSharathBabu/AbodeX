@@ -522,8 +522,11 @@ export const PropertyDetailsPage = () => {
             )}
           </div>
 
-          <div className="h-96 rounded-3xl overflow-hidden border border-borderLight shadow-xs">
-            <MapPlaceholder properties={[property]} />
+          <div className="h-[440px] rounded-3xl overflow-hidden border border-borderLight shadow-xs">
+            <MapPlaceholder
+              properties={allProperties}
+              singlePropertyFocus={property}
+            />
           </div>
 
           {/* Nearby Points of Interest (POIs) Grid */}

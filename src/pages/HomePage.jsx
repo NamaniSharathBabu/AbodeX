@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { FilterBar } from '../components/common/FilterBar';
 import { PropertyCard } from '../components/property/PropertyCard';
+import { MapPlaceholder } from '../components/search/MapPlaceholder';
 import { useSearch } from '../context/SearchContext';
-import { Sparkles, SlidersHorizontal, RotateCcw, Shield, Home } from 'lucide-react';
+import { Sparkles, RotateCcw, Home, Map as MapIcon, List, Columns } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const HomePage = () => {
@@ -11,12 +12,10 @@ export const HomePage = () => {
     resetFilters,
     sortBy,
     setSortBy,
-    activeTargetCoords,
-    userCoords,
-    setUserCoords,
-    detectUserLocation,
   } = useSearch();
   const [showTotal, setShowTotal] = useState(false);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'split' | 'map'
+  const [highlightedId, setHighlightedId] = useState(null);
 
   const rankingOptions = [
     { id: 'recommended', label: 'Smart Match S(p)' },
@@ -68,38 +67,113 @@ export const HomePage = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-end lg:self-auto shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-gray-200 w-full lg:w-auto justify-end">
-            <span className="text-xs font-bold text-dark">Display total price</span>
-            <button
-              type="button"
-              onClick={() => setShowTotal(!showTotal)}
-              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
-                showTotal ? 'bg-dark' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                  showTotal ? 'translate-x-6' : 'translate-x-1'
+          <div className="flex flex-wrap items-center gap-3 self-end lg:self-auto shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-gray-200 w-full lg:w-auto justify-end">
+            {/* View Mode Toggle: Grid / Split Map / Full Map */}
+            <div className="bg-white rounded-xl border border-borderLight p-1 flex items-center gap-1 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  viewMode === 'grid'
+                    ? 'bg-dark text-white'
+                    : 'text-secondary hover:text-dark'
                 }`}
-              />
-            </button>
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>Grid</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('split')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  viewMode === 'split'
+                    ? 'bg-dark text-white'
+                    : 'text-secondary hover:text-dark'
+                }`}
+              >
+                <Columns className="w-3.5 h-3.5" />
+                <span>Split + Map</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('map')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  viewMode === 'map'
+                    ? 'bg-airbnb text-white'
+                    : 'text-secondary hover:text-dark'
+                }`}
+              >
+                <MapIcon className="w-3.5 h-3.5" />
+                <span>Full Map</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-dark">Total price</span>
+              <button
+                type="button"
+                onClick={() => setShowTotal(!showTotal)}
+                className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+                  showTotal ? 'bg-dark' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                    showTotal ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Properties Grid or Empty State */}
+        {/* Properties Grid, Split View, or Full Interactive Map */}
         {filteredProperties.length > 0 ? (
-          <div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-10">
-              {filteredProperties.map((property, index) => (
-                <PropertyCard
-                  key={property.id}
-                  property={property}
-                  showTotal={showTotal}
-                  rankIndex={sortBy === 'recommended' ? index : null}
-                />
-              ))}
+          viewMode === 'map' ? (
+            <div className="h-[640px] rounded-3xl overflow-hidden border border-borderLight shadow-md">
+              <MapPlaceholder
+                properties={filteredProperties}
+                highlightedPropertyId={highlightedId}
+              />
             </div>
-          </div>
+          ) : viewMode === 'split' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {filteredProperties.map((property, index) => (
+                  <div
+                    key={property.id}
+                    onMouseEnter={() => setHighlightedId(property.id)}
+                    onMouseLeave={() => setHighlightedId(null)}
+                  >
+                    <PropertyCard
+                      property={property}
+                      showTotal={showTotal}
+                      rankIndex={sortBy === 'recommended' ? index : null}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="lg:col-span-5 h-[620px] sticky top-28 rounded-3xl overflow-hidden border border-borderLight shadow-md">
+                <MapPlaceholder
+                  properties={filteredProperties}
+                  highlightedPropertyId={highlightedId}
+                />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-10">
+                {filteredProperties.map((property, index) => (
+                  <PropertyCard
+                    key={property.id}
+                    property={property}
+                    showTotal={showTotal}
+                    rankIndex={sortBy === 'recommended' ? index : null}
+                  />
+                ))}
+              </div>
+            </div>
+          )
         ) : (
           <div className="py-20 text-center flex flex-col items-center justify-center max-w-md mx-auto space-y-4">
             <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-secondary">
@@ -119,6 +193,27 @@ export const HomePage = () => {
             </button>
           </div>
         )}
+
+        {/* Floating Show Map / Show List Pill Button */}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30">
+          <button
+            type="button"
+            onClick={() => setViewMode(viewMode === 'map' ? 'grid' : 'map')}
+            className="flex items-center gap-2 px-5 py-3 rounded-full bg-dark hover:bg-black text-white font-bold text-xs sm:text-sm shadow-xl transition transform active:scale-95 cursor-pointer"
+          >
+            {viewMode === 'map' ? (
+              <>
+                <span>Show List</span>
+                <List className="w-4 h-4" />
+              </>
+            ) : (
+              <>
+                <span>Explore on Map</span>
+                <MapIcon className="w-4 h-4 text-airbnb" />
+              </>
+            )}
+          </button>
+        </div>
 
         {/* Host Inspiration Callout Banner */}
         <section className="mt-20 rounded-3xl overflow-hidden relative bg-gradient-to-r from-gray-900 via-gray-800 to-black text-white p-8 sm:p-12">
