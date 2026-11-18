@@ -16,6 +16,7 @@ import {
   Shield,
   Building2,
   Scale,
+  MessageSquare,
 } from 'lucide-react';
 import { SearchBar } from './SearchBar';
 import { useWishlist } from '../../context/WishlistContext';
@@ -100,6 +101,14 @@ export const Navbar = ({ forceCompact = false }) => {
                   {compareCount}
                 </span>
               )}
+            </Link>
+
+            <Link
+              to="/messages"
+              className="hidden sm:flex items-center gap-1.5 text-xs md:text-sm font-semibold text-dark hover:bg-gray-100 py-2 px-3 rounded-full transition"
+            >
+              <MessageSquare className="w-4 h-4 text-airbnb" />
+              <span>Messages</span>
             </Link>
 
             <button
@@ -249,6 +258,19 @@ export const Navbar = ({ forceCompact = false }) => {
                         >
                           <Briefcase className="w-4 h-4 text-secondary" />
                           Trips & Bookings
+                        </Link>
+                        <Link
+                          to="/messages"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center justify-between px-4 py-2.5 text-dark hover:bg-gray-100 font-medium transition"
+                        >
+                          <div className="flex items-center gap-3">
+                            <MessageSquare className="w-4 h-4 text-airbnb" />
+                            <span>Messages (Socket.IO)</span>
+                          </div>
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                            LIVE
+                          </span>
                         </Link>
                       </div>
                       <div className="py-1">

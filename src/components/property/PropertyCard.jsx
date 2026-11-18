@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, Star, ChevronLeft, ChevronRight, Award, Scale } from 'lucide-react';
+import { Heart, Star, ChevronLeft, ChevronRight, Award, Scale, Sparkles } from 'lucide-react';
 import { useWishlist } from '../../context/WishlistContext';
 import { useCompare } from '../../context/CompareContext';
 import { useToast } from '../../context/ToastContext';
 
-export const PropertyCard = ({ property, showTotal = false }) => {
+export const PropertyCard = ({ property, showTotal = false, rankIndex = null }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const { isWishlisted, toggleWishlist } = useWishlist();
@@ -83,17 +83,31 @@ export const PropertyCard = ({ property, showTotal = false }) => {
             loading="lazy"
           />
 
-          {/* Guest Favorite / Superhost Badge or In-Compare Status */}
-          <div className="absolute top-3 left-3 flex flex-col gap-1.5">
-            {property.isSuperhost && (
-              <div className="bg-white/95 backdrop-blur-xs text-dark px-2.5 py-1 rounded-full text-xs font-bold shadow-xs flex items-center gap-1">
-                <Award className="w-3.5 h-3.5 text-airbnb fill-airbnb" />
-                <span>Guest favorite</span>
+          {/* Guest Favorite / Superhost Badge + Match Score Badge */}
+          <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10">
+            {rankIndex === 0 ? (
+              <div className="bg-airbnb text-white px-2.5 py-1 rounded-full text-xs font-extrabold shadow-sm flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>
+                  #1 Top Recommended ({property.suitability?.scorePercent || 95}% Match)
+                </span>
               </div>
+            ) : property.suitability?.scorePercent ? (
+              <div className="bg-white/95 backdrop-blur-xs text-dark px-2.5 py-1 rounded-full text-xs font-extrabold shadow-xs flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-airbnb" />
+                <span>{property.suitability.scorePercent}% Match</span>
+              </div>
+            ) : (
+              property.isSuperhost && (
+                <div className="bg-white/95 backdrop-blur-xs text-dark px-2.5 py-1 rounded-full text-xs font-bold shadow-xs flex items-center gap-1">
+                  <Award className="w-3.5 h-3.5 text-airbnb fill-airbnb" />
+                  <span>Guest favorite</span>
+                </div>
+              )
             )}
             {compared && (
-              <div className="bg-airbnb text-white px-2.5 py-0.5 rounded-full text-[10px] font-extrabold shadow-xs flex items-center gap-1 w-fit">
-                <Scale className="w-3 h-3" />
+              <div className="bg-dark/90 text-white px-2.5 py-0.5 rounded-full text-[10px] font-extrabold shadow-xs flex items-center gap-1 w-fit">
+                <Scale className="w-3 h-3 text-airbnb" />
                 <span>In Compare Box</span>
               </div>
             )}
@@ -168,12 +182,26 @@ export const PropertyCard = ({ property, showTotal = false }) => {
             </div>
           </div>
 
-          {/* Subtitle / Type */}
-          <p className="text-xs text-secondary truncate">
-            {property.type} · {property.bedrooms} {property.bedrooms === 1 ? 'bed' : 'beds'}
-          </p>
+          {/* Subtitle / Type + Distance */}
+          <div className="flex items-center justify-between gap-2 text-xs text-secondary">
+            <span className="truncate">
+              {property.type} · {property.bedrooms} {property.bedrooms === 1 ? 'bed' : 'beds'}
+            </span>
+            {property.suitability?.distanceKm != null && (
+              <span className="font-mono text-[11px] font-bold text-dark bg-gray-100 px-1.5 py-0.5 rounded shrink-0">
+                {property.suitability.distanceKm} km
+              </span>
+            )}
+          </div>
 
-          {/* Availability / Dates status */}
+          {/* Recommendation Reason & Availability Status */}
+          {property.recommendationReason && (
+            <p className="text-[11px] font-semibold text-airbnb truncate flex items-center gap-1">
+              <Sparkles className="w-3 h-3 shrink-0" />
+              <span>{property.recommendationReason}</span>
+            </p>
+          )}
+
           <p className="text-xs text-secondary truncate">
             {property.bookedDates && property.bookedDates.length > 0 ? (
               <span className="text-amber-700 font-medium">

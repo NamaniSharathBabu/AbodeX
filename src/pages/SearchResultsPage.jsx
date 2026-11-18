@@ -21,6 +21,8 @@ export const SearchResultsPage = () => {
     totalGuests,
     checkIn,
     checkOut,
+    sortBy,
+    setSortBy,
     resetFilters,
   } = useSearch();
 
@@ -50,11 +52,29 @@ export const SearchResultsPage = () => {
             {checkIn && <span> · {checkIn}</span>}
           </div>
 
-          {/* Quick Filter Chips */}
+          {/* Quick Filter Chips & Smart Sort Selector */}
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            <div className="flex items-center gap-1.5 border border-borderLight rounded-full py-1 px-3 bg-gray-50 text-xs shrink-0">
+              <Sparkles className="w-3.5 h-3.5 text-airbnb" />
+              <span className="font-bold text-secondary">Rank by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-transparent font-extrabold text-dark focus:outline-none cursor-pointer"
+              >
+                <option value="recommended">Smart Match S(p)</option>
+                <option value="budget">Best Value / Budget</option>
+                <option value="rating">Top Rated</option>
+                <option value="distance">Nearest Distance</option>
+                <option value="price-asc">Price: Low to High</option>
+                <option value="price-desc">Price: High to Low</option>
+                <option value="capacity">Group Capacity Fit</option>
+              </select>
+            </div>
+
             <button
               onClick={() => setFilterModalOpen(true)}
-              className="flex items-center gap-2 border border-borderLight hover:border-dark rounded-full py-1.5 px-3.5 text-xs font-semibold text-dark transition shrink-0 bg-white"
+              className="flex items-center gap-2 border border-borderLight hover:border-dark rounded-full py-1.5 px-3.5 text-xs font-semibold text-dark transition shrink-0 bg-white cursor-pointer"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>Filters</span>
@@ -97,13 +117,16 @@ export const SearchResultsPage = () => {
         >
           {displayedProperties.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-              {displayedProperties.map((property) => (
+              {displayedProperties.map((property, idx) => (
                 <div
                   key={property.id}
                   onMouseEnter={() => setHighlightedId(property.id)}
                   onMouseLeave={() => setHighlightedId(null)}
                 >
-                  <PropertyCard property={property} />
+                  <PropertyCard
+                    property={property}
+                    rankIndex={sortBy === 'recommended' ? idx : null}
+                  />
                 </div>
               ))}
             </div>

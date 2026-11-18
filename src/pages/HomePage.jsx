@@ -6,8 +6,27 @@ import { Sparkles, SlidersHorizontal, RotateCcw, Shield, Home } from 'lucide-rea
 import { Link } from 'react-router-dom';
 
 export const HomePage = () => {
-  const { filteredProperties, resetFilters, destination, selectedCategory } = useSearch();
+  const {
+    filteredProperties,
+    resetFilters,
+    sortBy,
+    setSortBy,
+    activeTargetCoords,
+    userCoords,
+    setUserCoords,
+    detectUserLocation,
+  } = useSearch();
   const [showTotal, setShowTotal] = useState(false);
+
+  const rankingOptions = [
+    { id: 'recommended', label: 'Smart Match S(p)' },
+    { id: 'budget', label: 'Best Value' },
+    { id: 'rating', label: 'Top Rated' },
+    { id: 'distance', label: 'Nearest Distance' },
+    { id: 'price-asc', label: 'Price: Low → High' },
+    { id: 'price-desc', label: 'Price: High → Low' },
+    { id: 'capacity', label: 'Group Capacity' },
+  ];
 
   return (
     <div className="flex-1 flex flex-col bg-white">
@@ -15,23 +34,46 @@ export const HomePage = () => {
       <FilterBar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
-        {/* Toggle Total Price Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 bg-gray-50/80 border border-borderLight rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white border border-borderLight flex items-center justify-center text-airbnb shadow-2xs">
+        {/* Smart Recommendation & Ranking Bar + Total Price Toggle */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8 bg-gray-50/80 border border-borderLight rounded-2xl p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white border border-borderLight flex items-center justify-center text-airbnb shadow-2xs shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-dark">Display total price</h2>
-              <p className="text-xs text-secondary">Includes all taxes and additional fees upfront</p>
+              <h2 className="text-sm font-extrabold text-dark">
+                Smart Recommendation & Ranking
+              </h2>
+              <p className="text-xs text-secondary">
+                Multi-criteria ranking across price, rating, location, amenities, capacity & availability
+              </p>
+            </div>
+
+            {/* Ranking Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 lg:pt-0 lg:ml-2">
+              {rankingOptions.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setSortBy(opt.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition cursor-pointer ${
+                    sortBy === opt.id
+                      ? 'bg-dark text-white shadow-xs'
+                      : 'bg-white border border-borderLight text-secondary hover:border-dark hover:text-dark'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-end sm:self-auto">
+          <div className="flex items-center gap-3 self-end lg:self-auto shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-gray-200 w-full lg:w-auto justify-end">
+            <span className="text-xs font-bold text-dark">Display total price</span>
             <button
               type="button"
               onClick={() => setShowTotal(!showTotal)}
-              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
                 showTotal ? 'bg-dark' : 'bg-gray-300'
               }`}
             >
@@ -48,11 +90,12 @@ export const HomePage = () => {
         {filteredProperties.length > 0 ? (
           <div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-10">
-              {filteredProperties.map((property) => (
+              {filteredProperties.map((property, index) => (
                 <PropertyCard
                   key={property.id}
                   property={property}
                   showTotal={showTotal}
+                  rankIndex={sortBy === 'recommended' ? index : null}
                 />
               ))}
             </div>

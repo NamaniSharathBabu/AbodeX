@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, MapPin, Calendar, Users, Plus, Minus, X } from 'lucide-react';
+import { Search, MapPin, Calendar, Users, Plus, Minus, X, Navigation } from 'lucide-react';
 import { useSearch } from '../../context/SearchContext';
+import { useToast } from '../../context/ToastContext';
 
 export const SearchBar = ({ isCompact = false, onSearchSubmit }) => {
   const navigate = useNavigate();
@@ -15,7 +16,13 @@ export const SearchBar = ({ isCompact = false, onSearchSubmit }) => {
     guests,
     updateGuests,
     totalGuests,
+    userCoords,
+    setUserCoords,
+    radiusKm,
+    setRadiusKm,
+    detectUserLocation,
   } = useSearch();
+  const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState(null); // 'where', 'checkin', 'checkout', 'who'
   const [showGuestPopup, setShowGuestPopup] = useState(false);
@@ -208,32 +215,93 @@ export const SearchBar = ({ isCompact = false, onSearchSubmit }) => {
 
       {/* Destination Dropdown Popup */}
       {showDestPopup && (
-        <div className="absolute top-full left-0 mt-3 w-full md:w-96 bg-white rounded-3xl p-6 shadow-modal border border-borderLight z-50 animate-fade-in">
-          <p className="text-xs font-bold uppercase tracking-wider text-secondary mb-3">
-            Search by region
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {quickDestinations.map((item, idx) => (
+        <div className="absolute top-full left-0 mt-3 w-full md:w-[420px] bg-white rounded-3xl p-6 shadow-modal border border-borderLight z-50 animate-fade-in space-y-4">
+          {/* 4.1.1 Geolocation Button */}
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-gray-100">
+            <button
+              type="button"
+              onClick={() => {
+                detectUserLocation((coords) => {
+                  showToast(
+                    `Geolocation active: ${coords.label} (${coords.lat}, ${coords.lng})`,
+                    'success'
+                  );
+                });
+                setShowDestPopup(false);
+              }}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-2xl bg-airbnb/10 hover:bg-airbnb hover:text-white text-airbnb text-xs font-extrabold transition cursor-pointer"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              <span>Use My Current Location (GPS)</span>
+            </button>
+
+            {userCoords && (
               <button
-                key={idx}
                 type="button"
-                onClick={() => {
-                  setDestination(item.query);
-                  setShowDestPopup(false);
-                  setActiveTab('checkin');
-                }}
-                className={`flex items-center gap-3 p-3 rounded-2xl border text-left text-sm transition hover:border-dark hover:bg-gray-50 ${
-                  destination.toLowerCase() === item.query.toLowerCase()
-                    ? 'border-dark bg-gray-50 font-semibold'
-                    : 'border-borderLight text-dark'
-                }`}
+                onClick={() => setUserCoords(null)}
+                className="px-2.5 py-2 rounded-xl border border-gray-200 text-[11px] font-bold text-secondary hover:text-dark"
               >
-                <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-dark">
-                  <MapPin className="w-4 h-4 text-airbnb" />
-                </div>
-                <span className="truncate">{item.name}</span>
+                Clear GPS
               </button>
-            ))}
+            )}
+          </div>
+
+          {/* Search Radius Filter */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-secondary">
+              Proximity Radius:
+            </span>
+            <div className="flex items-center gap-1">
+              {[
+                { id: 'any', label: 'Any' },
+                { id: 50, label: '50 km' },
+                { id: 250, label: '250 km' },
+                { id: 1000, label: '1000 km' },
+              ].map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRadiusKm(r.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                    radiusKm === r.id
+                      ? 'bg-dark text-white'
+                      : 'bg-gray-100 text-secondary hover:text-dark'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-secondary mb-2.5">
+              Search by region
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {quickDestinations.map((item, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setUserCoords(null);
+                    setDestination(item.query);
+                    setShowDestPopup(false);
+                    setActiveTab('checkin');
+                  }}
+                  className={`flex items-center gap-3 p-3 rounded-2xl border text-left text-sm transition hover:border-dark hover:bg-gray-50 cursor-pointer ${
+                    destination.toLowerCase() === item.query.toLowerCase()
+                      ? 'border-dark bg-gray-50 font-semibold'
+                      : 'border-borderLight text-dark'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-dark shrink-0">
+                    <MapPin className="w-4 h-4 text-airbnb" />
+                  </div>
+                  <span className="truncate">{item.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

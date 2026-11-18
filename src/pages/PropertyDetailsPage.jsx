@@ -13,11 +13,15 @@ import { useCompare } from '../context/CompareContext';
 import { useSearch } from '../context/SearchContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { getPropertyPOIs } from '../utils/stayfinderAlgorithms';
 import {
   Star,
   Share2,
   Heart,
   Scale,
+  Navigation,
+  Compass,
+  ExternalLink,
   Award,
   Key,
   MapPin,
@@ -330,7 +334,11 @@ export const PropertyDetailsPage = () => {
 
             {/* Host Badge Info Box */}
             <div className="py-6">
-              <HostBadge host={property.host} />
+              <HostBadge
+                host={property.host}
+                propertyId={property.id}
+                propertyTitle={property.title}
+              />
             </div>
           </div>
 
@@ -484,12 +492,71 @@ export const PropertyDetailsPage = () => {
           </div>
         </section>
 
-        {/* Location & Map Section */}
-        <section className="pt-12 border-t border-gray-200 space-y-4">
-          <h3 className="text-xl font-bold text-dark">Where you'll be</h3>
-          <p className="text-sm text-secondary">{property.location}</p>
+        {/* 4.1.1 Location, Coordinates, Nearby Points of Interest (POIs) & Map Section */}
+        <section className="pt-12 border-t border-gray-200 space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-dark">Where you'll be</h3>
+              <p className="text-sm text-secondary flex items-center gap-1.5 mt-0.5">
+                <MapPin className="w-4 h-4 text-airbnb" />
+                <span>{property.location}</span>
+                {property.coordinates && (
+                  <span className="font-mono text-xs bg-gray-100 text-dark px-2 py-0.5 rounded-md ml-1">
+                    {property.coordinates.lat.toFixed(4)}° N, {property.coordinates.lng.toFixed(4)}° E
+                  </span>
+                )}
+              </p>
+            </div>
+
+            {property.coordinates && (
+              <a
+                href={`https://www.google.com/maps?q=${property.coordinates.lat},${property.coordinates.lng}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-borderLight hover:border-dark text-xs font-bold text-dark transition"
+              >
+                <Compass className="w-4 h-4 text-airbnb" />
+                <span>Open in Google Maps</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+
           <div className="h-96 rounded-3xl overflow-hidden border border-borderLight shadow-xs">
             <MapPlaceholder properties={[property]} />
+          </div>
+
+          {/* Nearby Points of Interest (POIs) Grid */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-extrabold text-dark flex items-center gap-2">
+                <Navigation className="w-4 h-4 text-airbnb" />
+                <span>Nearby Points of Interest & Landmarks</span>
+              </h4>
+              <span className="text-xs text-secondary">Geospatial Proximity Data</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {getPropertyPOIs(property).map((poi, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 rounded-2xl bg-gray-50 border border-borderLight hover:border-dark transition space-y-1.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded-full bg-airbnb/10 text-airbnb text-[10px] font-extrabold uppercase">
+                      {poi.category}
+                    </span>
+                    <span className="text-xs font-extrabold text-dark">
+                      {poi.distanceKm} km
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm font-bold text-dark">{poi.name}</p>
+                  <p className="text-[11px] text-secondary">
+                    Approx. {poi.walkMins} mins walk from property
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 

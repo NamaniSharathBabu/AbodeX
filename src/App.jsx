@@ -13,6 +13,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { HostDashboardPage } from './pages/HostDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { ComparePage } from './pages/ComparePage';
+import { MessagesPage } from './pages/MessagesPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 export function App() {
@@ -31,6 +32,7 @@ export function App() {
           <Route path="/wishlists" element={<WishlistPage />} />
           <Route path="/wishlist" element={<WishlistPage />} />
           <Route path="/compare" element={<ComparePage />} />
+          <Route path="/messages" element={<MessagesPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/host" element={<HostDashboardPage />} />
           <Route path="/admin" element={<AdminDashboardPage />} />
